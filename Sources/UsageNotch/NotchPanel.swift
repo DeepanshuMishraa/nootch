@@ -318,17 +318,14 @@ final class NotchPanelController {
             let isOverRail = location.x >= (frame.maxX - 84) && location.x <= frame.maxX
             if isOverRail {
                 let topOffset = frame.maxY - location.y
-                let contentTop: CGFloat = 36
-                let slotHeight: CGFloat = 86
-                if topOffset >= contentTop {
-                    let rawIndex = Int((topOffset - contentTop) / slotHeight)
-                    let count = interaction.providerCount
-                    if count > 0 && rawIndex >= 0 && rawIndex < count {
-                        if interaction.hoveredIndex != rawIndex {
-                            withAnimation(.spring(response: 0.16, dampingFraction: 0.9)) {
-                                interaction.hoveredIndex = rawIndex
-                            }
-                        }
+                let contentTop: CGFloat = 48
+                let slotHeight: CGFloat = 88
+                let rawIndex = Int((topOffset - contentTop) / slotHeight)
+                let count = interaction.providerCount
+                let nextIndex = topOffset >= contentTop && rawIndex >= 0 && rawIndex < count ? rawIndex : nil
+                if interaction.hoveredIndex != nextIndex {
+                    withAnimation(.spring(response: 0.14, dampingFraction: 0.92)) {
+                        interaction.hoveredIndex = nextIndex
                     }
                 }
             }
@@ -345,10 +342,22 @@ final class NotchPanelController {
 
     private var interactionRegion: NSRect {
         let frame = panel.frame
-        let notchRegion = NSRect(x: frame.maxX - 175, y: frame.maxY - 513, width: 175, height: 513)
-        guard interaction.isDetailVisible else { return notchRegion }
-        let detailRegion = NSRect(x: frame.maxX - 440, y: frame.maxY - 513, width: 440, height: 513)
-        return notchRegion.union(detailRegion)
+        let triggerRegion = NSRect(
+            x: frame.maxX - 153,
+            y: frame.maxY - 573,
+            width: 153,
+            height: 573)
+        guard interaction.isHovered || interaction.pinnedOpen else {
+            return triggerRegion
+        }
+
+        guard interaction.isDetailVisible else { return triggerRegion }
+        let detailRegion = NSRect(
+            x: frame.maxX - 440,
+            y: frame.maxY - 573,
+            width: 440,
+            height: 573)
+        return triggerRegion.union(detailRegion)
     }
 
     private func collapseFromOutsideClick() {
@@ -414,18 +423,12 @@ struct NotchView: View {
         }
     }
 
-    private var activeProviderIndex: Int {
-        guard let active = activeStatus else { return 0 }
-        return activeStatuses.firstIndex(where: { $0.provider == active.provider }) ?? 0
-    }
-
     private var cardOffsetY: CGFloat {
-        CGFloat(activeProviderIndex) * 74 + 16
+        max(16, ((hoveredYPosition - 70) / 88) * 74 + 16)
     }
 
     private var relativePointerY: CGFloat {
-        let absoluteItemCenterY = CGFloat(activeProviderIndex) * 88 + 70
-        return absoluteItemCenterY - cardOffsetY
+        hoveredYPosition - cardOffsetY
     }
 
     var body: some View {
@@ -447,7 +450,7 @@ struct NotchView: View {
                 Spacer()
 
                 // Floating Detail Card - aligns with hovered provider level
-                if let status = activeStatus, (hoveredProvider != nil || interaction.pinnedOpen) {
+                if let status = activeStatus, (hoveredProvider != nil || interaction.pinnedOpen || (interaction.isHovered && selectedProvider != nil)) {
                     DetailPopoverCard(status: status, pointerY: relativePointerY)
                         .offset(y: cardOffsetY)
                         .transition(
@@ -483,9 +486,12 @@ struct NotchView: View {
             if let idx = interaction.hoveredIndex, idx >= 0, idx < activeStatuses.count {
                 cancelAutoHide()
                 interaction.isHovered = true
-                withAnimation(.spring(response: 0.16, dampingFraction: 0.9)) {
+                let transaction = Transaction(animation: nil)
+                withTransaction(transaction) {
                     hoveredProvider = activeStatuses[idx].provider
                     selectedProvider = activeStatuses[idx].provider
+                }
+                withAnimation(.spring(response: 0.18, dampingFraction: 0.88)) {
                     hoveredYPosition = CGFloat(idx) * 88 + 70
                 }
             } else if interaction.hoveredIndex == nil && !interaction.pinnedOpen {
@@ -506,9 +512,7 @@ struct NotchView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isExpanded)
-        .animation(.spring(response: 0.16, dampingFraction: 0.9), value: hoveredProvider)
-        .animation(.spring(response: 0.16, dampingFraction: 0.9), value: hoveredYPosition)
-        .animation(.spring(response: 0.16, dampingFraction: 0.9), value: cardOffsetY)
+        .animation(.spring(response: 0.18, dampingFraction: 0.88), value: hoveredYPosition)
     }
 
     // MARK: - Morphing Notch Rail
@@ -525,6 +529,13 @@ struct NotchView: View {
                     )
                     .frame(width: 72, height: 76)
                     .contentShape(Rectangle())
+                    .onHover { hovering in
+                        if hovering {
+                            cancelAutoHide()
+                            interaction.isHovered = true
+                            interaction.hoveredIndex = index
+                        }
+                    }
                     .onTapGesture {
                         withAnimation(.spring(response: 0.18, dampingFraction: 0.88)) {
                             selectedProvider = status.provider
