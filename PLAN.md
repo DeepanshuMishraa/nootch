@@ -1,56 +1,44 @@
-# CodexBar-Inspired macOS Usage Notch
+# Agent activity indicators
 
 ## Context
-- This repository is currently empty (`git ls-files` returned no tracked files); implementation will establish the initial SwiftUI/AppKit macOS app structure.
-- The target is a menu-bar/system utility with a side-notch-style usage display inspired by the supplied image and `steipete/CodexBar`.
-- The app should discover locally installed AI providers, obtain provider-specific usage/quota data, normalize it, and present compact status plus an expanded detail surface.
-- Confirmed scope: macOS 15 Sequoia; right-edge vertical notch/rail (not a menu-bar app); launch at login; provider coverage should follow CodexBar's major-provider strategy; use both local detection/sources and provider APIs where available.
+- Usage Notch already renders provider usage rings, but it does not show whether a local coding agent is working, waiting for user action, finished, or idle.
+- The requested behavior is to inspect Herdr's real status detection, then apply the same state model to this app without requiring Herdr to be installed.
+- Usage color should continue to reflect quota pressure: green for highest remaining usage, yellow for lower usage, and red for very low usage. While an agent is working, the ring should spin without replacing the quota color. Needs-action gets a separate visual treatment. Finished keeps the current/default appearance, so there is no new persistent finished badge.
 
 ## Approach
-- Build a native SwiftUI macOS app with an AppKit `NSPanel` overlay for the right-edge notch/rail presentation, rather than a menu-bar or normal app window. Keep a small settings/preferences window for configuration and diagnostics.
-- Separate provider discovery, provider adapters, usage normalization, refresh/caching, and UI state so provider-specific APIs do not leak into views.
-- Use CodexBar's descriptor-driven provider registry as the architectural model: each provider declares metadata, availability, ordered fetch strategies, credential/auth handling, and presentation capabilities; the app runs only strategies whose local prerequisites are detected and falls back in order.
-- First reproduce the reference architecture and supported provider behavior from the upstream repository; then implement a narrow tracer-bullet provider and overlay before broadening coverage.
-- Treat credentials and local provider state as sensitive: autodetection should inspect known local installation/configuration locations without copying or exposing secrets.
+- First map Herdr's detection pipeline and status semantics from its source, then map those states onto Usage Notch's existing provider model.
+- Add a typed agent activity state and a detection/refresh path that reports `working`, `blocked`/needs action, `done`, `idle`, or `unknown` without treating quota refresh state as agent activity.
+- Use direct local detection, not Herdr APIs: identify known agent processes, observe their local activity/session evidence, and use agent-specific rules for approval prompts where evidence is available. Keep the detector best-effort and explicit about unknown states.
+- Update the provider ring UI so working rings animate/spin, action-needed rings have a clear static attention treatment, done and idle rings retain today's appearance, and quota color remains independent from activity state.
+- Preserve existing quota thresholds and colors, reduce-motion behavior, last-success usage caching, and explicit unavailable/error handling.
 
 ## Files to modify
-- TBD after repository/upstream inspection; expected initial areas:
-  - Swift package/Xcode project files
-  - App entry point and lifecycle/menu-bar integration
-  - `AppKit` notch/overlay panel and geometry
-  - SwiftUI usage/status views
-  - Provider registry, discovery, adapters, normalized usage models
-  - Tests and documentation
+- `Sources/UsageNotch/Domain.swift`: typed activity state, agent identity, and provider-level activity projection.
+- `Sources/UsageNotch/AgentActivityDetector.swift`: macOS-local process/activity polling and conservative agent-specific evidence rules, independent of Herdr.
+- `Sources/UsageNotch/UsageStore.swift`: merge activity snapshots with quota refreshes and expose a separate activity refresh cadence.
+- `Sources/UsageNotch/UsageNotchApp.swift`: start and stop the activity monitor with the app lifecycle.
+- `Sources/UsageNotch/NotchPanel.swift`: spin only working rings, add a distinct needs-action treatment, and leave done/idle rendering unchanged.
+- `Tests/UsageNotchTests/UsageNotchTests.swift` or focused new test files: detector mapping, state transitions, provider mapping, and presentation decisions.
 
 ## Reuse
-- Repository is empty; no existing implementation to reuse.
-- Local macOS guidance: `macos-notch-ui` recommends a transparent, non-activating `NSPanel`, top-level window positioning, custom notch shape, multi-display handling, and reduced-motion/fallback behavior.
-- Local macOS guidance: `macos-patterns` covers status items, window levels, Spaces/fullscreen behavior, AppKit coordinate systems, and launch-at-login patterns.
+- Existing `UsageStore` owns refresh state and cached provider snapshots in `Sources/UsageNotch/UsageStore.swift`; quota fetching and activity polling should remain separate so a slow API call cannot make an agent look busy.
+- Existing `ProviderStatus` in `Sources/UsageNotch/Domain.swift` should carry the typed activity projection rather than view-only string flags.
+- Existing `UsageWindow.tierColor` and `gradient` already implement the green/yellow/red remaining-usage thresholds. Do not recolor working rings with a generic busy color.
+- Existing `ProviderRailItem` in `Sources/UsageNotch/NotchPanel.swift` owns the compact ring and is the only place that needs motion/attention presentation logic.
+- Herdr's useful behavior is the state model and conservative arbitration: process identity first, agent-specific evidence second, explicit unknown fallback, and publish changes only. Its implementation is reference material, not a runtime dependency.
 
 ## Steps
-- [x] Inspect the upstream CodexBar repository structure, provider adapters, discovery logic, usage calculations, caching/refresh behavior, and UI/window lifecycle.
-- [x] Confirm product scope and provider/authentication boundaries with the user.
-- [x] Create the native macOS project skeleton and app lifecycle.
-- [x] Implement typed provider discovery and a normalized usage model with provider-specific adapter boundaries.
-- [x] Implement a bounded refresh loop and explicit unavailable/error states.
-- [x] Implement the right-edge panel, compact provider indicators, expanded usage detail, and spring animation behavior.
-- [x] Add initial tests for parsing and percentage normalization.
-- [x] Add real OAuth/API/local-auth usage fetchers for Codex, Claude, Antigravity, Cursor, and Copilot, including reset-time mapping and last-success retention.
-- [x] Run package tests and whitespace validation.
-- [ ] Manually verify authenticated responses and overlay geometry across notch and non-notch/multi-display setups.
-
-## Upstream findings
-- CodexBar is split into `Sources/CodexBarCore` (fetching/parsing/provider contracts) and `Sources/CodexBar` (state/UI), with separate CLI/widget/helper targets. Its data flow is refresh → provider strategies → `UsageStore` → menu/icon/widget projections.
-- Providers are descriptor-driven and use ordered strategies such as OAuth, CLI RPC/PTY, API token, browser cookies/WebView, and local probes. Availability checks are cached and settings/config changes invalidate the cache. The intended extension boundary is one provider folder plus descriptor/strategies/tests/docs, not central UI branching.
-- The normalized quota model is `RateWindow`: `usedPercent`, optional `windowMinutes`, optional absolute `resetsAt`, optional reset text, and optional metadata for synthetic/unknown lanes. A provider can expose primary, secondary, tertiary, and named extra windows. Identity and credentials remain provider-scoped.
-- Percentages are provider-reported when available. For CLI output that reports remaining percentage, CodexBar computes `used = clamp(100 - percentLeft, 0...100)`. For API responses that report used percentage, it stores that value and derives `remaining = max(0, 100 - used)`. Reset epoch seconds are converted to `Date`; absent/invalid denominators are not turned into fake percentages.
-- Codex's automatic strategy order is PAT/local auth, OAuth, then CLI; Claude uses configured Admin API/OAuth/CLI/web paths. The implementation distinguishes subscription quota windows from API spend and local token-cost estimates rather than merging unlike meters.
-- Refresh is centralized in `UsageStore`, coalesces concurrent refreshes, preserves the last successful snapshot when a replacement fails, surfaces stale/error state, and supports manual plus adaptive timed refresh. Adaptive cadence considers interaction/activity/power/thermal state; our first version can use a simpler bounded interval.
-- The supplied image implies a separate right-edge overlay: a narrow vertical provider rail with circular usage gauges expands into a horizontal/left-facing detail card. This is distinct from CodexBar's current menu-bar UI and should be implemented as a custom non-activating AppKit panel.
+- [x] Locate Herdr source and document how terminal output/session metadata becomes agent states.
+- [x] Inspect current Usage Notch models, store, panel, ring views, and tests.
+- [x] Choose and implement a direct local detector that does not require Herdr, with process/session evidence and conservative unknown fallbacks.
+- [x] Add typed activity state, state transitions, and attention/seen semantics.
+- [x] Add spinning/attention/idle UI states while preserving quota colors.
+- [x] Add deterministic tests for detection mapping, transitions, and color-plus-motion behavior.
+- [x] Run Swift tests and whitespace validation.
+- [ ] Manually verify live agent transitions and visual treatment in the running app.
 
 ## Verification
-- Compare provider parsing and percentage/reset outputs against upstream fixtures or observed behavior.
-- Unit-test provider detection and usage calculations, including missing/expired/partial data.
-- Build with `xcodebuild` and run the app manually: launch, provider discovery, refresh, click/hover expansion, reset countdown, errors, quit, and relaunch.
-- Verify overlay placement across notch and non-notch displays, Spaces/fullscreen, light/dark appearance, Reduce Motion, and click-through behavior.
-- Every provider adapter is implemented directly in Usage Notch with no CodexBar package/runtime dependency. CodexBar was used only as a behavioral reference. Missing or invalid credentials produce explicit errors, and no usage values are fabricated.
+- Unit-test the local detector's process/activity and agent-rule mapping with working, blocked, done, idle, and unknown samples.
+- Confirm quota color stays green/yellow/red independently of activity state.
+- Manually start supported agents, wait for work, an approval request, completion, and idle prompt, and verify the rail updates and stops spinning at each transition. This remains pending because the app was not launched during validation.
+- Verify Reduce Motion disables or softens the spin and that cached usage remains visible during detector/API failures.

@@ -11,8 +11,14 @@ final class UsageStore {
     private(set) var lastRefresh: Date?
     private let adapters: [any ProviderAdapter]
     private var refreshTask: Task<Void, Never>?
+    private var activityTask: Task<Void, Never>?
+    private let activityDetector: AgentActivityDetector
 
-    init(adapters: [any ProviderAdapter] = ProviderDiscovery.defaultAdapters) {
+    init(
+        adapters: [any ProviderAdapter] = ProviderDiscovery.defaultAdapters,
+        activityDetector: AgentActivityDetector = AgentActivityDetector())
+    {
+        self.activityDetector = activityDetector
         self.adapters = adapters
         self.statuses = Self.loadCachedStatuses()
         self.lastRefresh = self.statuses.compactMap(\.updatedAt).max()
@@ -20,7 +26,25 @@ final class UsageStore {
 
     var detectedStatuses: [ProviderStatus] { statuses.filter(\.detected) }
 
+    func refreshActivity() {
+        guard activityTask == nil else { return }
+        let detector = activityDetector
+        activityTask = Task { @MainActor in
+            let snapshot = await Task.detached(priority: .utility) { detector.snapshot() }.value
+            guard !Task.isCancelled else { return }
+            guard snapshot.isReliable else {
+                self.activityTask = nil
+                return
+            }
+            self.statuses = self.statuses.map { status in
+                status.withActivity(snapshot.activityByProvider[status.provider] ?? .done)
+            }
+            self.activityTask = nil
+        }
+    }
+
     func refresh() {
+        refreshActivity()
         guard !isRefreshing else { return }
         isRefreshing = true
         refreshTask = Task { [adapters] in
@@ -37,21 +61,27 @@ final class UsageStore {
             guard !Task.isCancelled else { return }
             let previousByProvider = Dictionary(uniqueKeysWithValues: self.statuses.map { ($0.provider, $0) })
             self.statuses = fetched.map { fresh in
-                guard fresh.error != nil,
-                      fresh.primary == nil,
-                      fresh.secondary == nil,
-                      let previous = previousByProvider[fresh.provider],
-                      previous.primary != nil || previous.secondary != nil
-                else { return fresh }
-                return ProviderStatus(
-                    provider: fresh.provider,
-                    detected: fresh.detected,
-                    source: fresh.source ?? previous.source,
-                    primary: previous.primary,
-                    secondary: previous.secondary,
-                    error: fresh.error,
-                    updatedAt: previous.updatedAt,
-                    costUsage: previous.costUsage)
+                let status: ProviderStatus
+                if fresh.error != nil,
+                   fresh.primary == nil,
+                   fresh.secondary == nil,
+                   let previous = previousByProvider[fresh.provider],
+                   previous.primary != nil || previous.secondary != nil
+                {
+                    status = ProviderStatus(
+                        provider: fresh.provider,
+                        detected: fresh.detected,
+                        source: fresh.source ?? previous.source,
+                        primary: previous.primary,
+                        secondary: previous.secondary,
+                        error: fresh.error,
+                        updatedAt: previous.updatedAt,
+                        costUsage: previous.costUsage,
+                        activity: previous.activity)
+                } else {
+                    status = fresh
+                }
+                return status.withActivity(previousByProvider[fresh.provider]?.activity ?? status.activity)
             }
             Self.saveCachedStatuses(self.statuses)
             self.lastRefresh = Date()

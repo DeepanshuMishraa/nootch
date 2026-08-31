@@ -23,6 +23,7 @@ struct UsageNotchApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelController: NotchPanelController?
     private var refreshTask: Task<Void, Never>?
+    private var activityTask: Task<Void, Never>?
     private(set) var store: UsageStore?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -44,11 +45,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.store?.refresh()
             }
         }
+        activityTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(2))
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                self?.store?.refreshActivity()
+            }
+        }
         registerLaunchAtLogin()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         refreshTask?.cancel()
+        activityTask?.cancel()
     }
 
     private func registerLaunchAtLogin() {

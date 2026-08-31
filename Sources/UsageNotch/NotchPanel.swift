@@ -574,9 +574,26 @@ struct NotchView: View {
 
 // MARK: - Provider Rail Item (Ring + Percentage)
 
+struct WorkingArc: View {
+    @State private var rotation = 0.0
+
+    var body: some View {
+        Circle()
+            .trim(from: 0, to: 0.2)
+            .stroke(.white.opacity(0.95), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+            .rotationEffect(.degrees(rotation - 90))
+            .onAppear {
+                withAnimation(.linear(duration: 0.9).repeatForever(autoreverses: false)) {
+                    rotation = 360
+                }
+            }
+    }
+}
+
 struct ProviderRailItem: View {
     let status: ProviderStatus
     let isHovered: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var remainingPercent: Double {
         status.primary?.remainingPercent ?? 0
@@ -602,6 +619,28 @@ struct ProviderRailItem: View {
                         style: StrokeStyle(lineWidth: 3.5, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
+
+                // Working is shown by a separate arc so the quota ring keeps its meaning.
+                if status.activity.isWorking {
+                    if reduceMotion {
+                        Circle()
+                            .trim(from: 0, to: 0.2)
+                            .stroke(.white.opacity(0.9), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                    } else {
+                        WorkingArc()
+                    }
+                } else if status.activity.needsAttention {
+                    Circle()
+                        .stroke(gaugeColor, style: StrokeStyle(lineWidth: 2.5, dash: [2.5, 3], dashPhase: 1))
+                        .padding(-3)
+                    Image(systemName: "exclamationmark")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.black)
+                        .padding(3)
+                        .background(gaugeColor, in: Circle())
+                        .offset(x: 14, y: -14)
+                }
 
                 // Provider Logo Center
                 ProviderLogo(provider: status.provider, size: 18)
@@ -635,6 +674,10 @@ struct DetailPopoverCard: View {
         status.secondary
     }
 
+    private var gaugeColor: Color {
+        primaryWindow?.tierColor ?? Color(red: 0.18, green: 0.85, blue: 0.45)
+    }
+
     private var cardWidth: CGFloat {
         312
     }
@@ -652,7 +695,15 @@ struct DetailPopoverCard: View {
 
                 Spacer()
 
-                if let countdown = primaryWindow?.resetsInCountdown {
+                if status.activity.isWorking {
+                    Text("Working")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.8))
+                } else if status.activity.needsAttention {
+                    Text("Needs action")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(gaugeColor)
+                } else if let countdown = primaryWindow?.resetsInCountdown {
                     Text(countdown)
                         .font(.system(size: 12, weight: .regular))
                         .foregroundStyle(Color.white.opacity(0.48))

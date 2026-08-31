@@ -142,6 +142,17 @@ struct CostUsageSummary: Sendable, Equatable, Codable {
     }
 }
 
+enum AgentActivity: String, Codable, Sendable, Equatable {
+    case working
+    case needsAction
+    case done
+    case idle
+    case unknown
+
+    var isWorking: Bool { self == .working }
+    var needsAttention: Bool { self == .needsAction }
+}
+
 struct ProviderStatus: Identifiable, Sendable, Equatable, Codable {
     let provider: ProviderID
     let detected: Bool
@@ -151,6 +162,7 @@ struct ProviderStatus: Identifiable, Sendable, Equatable, Codable {
     let error: String?
     let updatedAt: Date?
     let costUsage: CostUsageSummary?
+    let activity: AgentActivity
     var id: ProviderID { provider }
 
     init(
@@ -161,7 +173,8 @@ struct ProviderStatus: Identifiable, Sendable, Equatable, Codable {
         secondary: UsageWindow?,
         error: String?,
         updatedAt: Date?,
-        costUsage: CostUsageSummary? = nil)
+        costUsage: CostUsageSummary? = nil,
+        activity: AgentActivity = .unknown)
     {
         self.provider = provider
         self.detected = detected
@@ -171,6 +184,29 @@ struct ProviderStatus: Identifiable, Sendable, Equatable, Codable {
         self.error = error
         self.updatedAt = updatedAt
         self.costUsage = costUsage
+        self.activity = activity
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case provider, detected, source, primary, secondary, error, updatedAt, costUsage, activity
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            provider: try values.decode(ProviderID.self, forKey: .provider),
+            detected: try values.decode(Bool.self, forKey: .detected),
+            source: try values.decodeIfPresent(String.self, forKey: .source),
+            primary: try values.decodeIfPresent(UsageWindow.self, forKey: .primary),
+            secondary: try values.decodeIfPresent(UsageWindow.self, forKey: .secondary),
+            error: try values.decodeIfPresent(String.self, forKey: .error),
+            updatedAt: try values.decodeIfPresent(Date.self, forKey: .updatedAt),
+            costUsage: try values.decodeIfPresent(CostUsageSummary.self, forKey: .costUsage),
+            activity: try values.decodeIfPresent(AgentActivity.self, forKey: .activity) ?? .unknown)
+    }
+
+    func withActivity(_ activity: AgentActivity) -> Self {
+        Self(provider: provider, detected: detected, source: source, primary: primary, secondary: secondary, error: error, updatedAt: updatedAt, costUsage: costUsage, activity: activity)
     }
 
     static func unavailable(_ provider: ProviderID, detected: Bool, source: String? = nil, error: String? = nil) -> Self {
