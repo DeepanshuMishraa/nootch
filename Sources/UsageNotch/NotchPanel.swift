@@ -566,7 +566,7 @@ struct NotchView: View {
         .overlay(alignment: .bottomLeading) {
             if isExpanded {
                 SettingsCornerButton(isHovered: interaction.isSettingsHovered)
-                    .offset(x: 10, y: 8)
+                    .offset(x: 4, y: -4)
             }
         }
     }
