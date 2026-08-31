@@ -307,32 +307,42 @@ final class NotchPanelController {
         let frame = panel.frame
         interaction.panelFrame = frame
 
-        if interactionRegion.contains(location) {
-            if !interaction.isHovered {
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
-                    interaction.isHovered = true
+        let isInside = interactionRegion.contains(location)
+        guard isInside else {
+            if interaction.isHovered || interaction.pinnedOpen {
+                withAnimation(.spring(response: 0.22, dampingFraction: 0.88)) {
+                    interaction.isHovered = false
+                    interaction.pinnedOpen = false
+                    interaction.isDetailVisible = false
+                    interaction.hoveredIndex = nil
+                    interaction.collapseToken &+= 1
                 }
             }
+            return
+        }
 
-            // 120Hz continuous vertical slot tracking across the notch rail
-            let isOverRail = location.x >= (frame.maxX - 84) && location.x <= (frame.maxX + 10)
-            if isOverRail {
-                let topOffset = frame.maxY - location.y
-                let relY = topOffset - 42
-                let count = interaction.providerCount
-                let rawIndex = Int(floor(relY / 88))
-                let nextIndex = (relY >= 0 && rawIndex >= 0 && rawIndex < count) ? rawIndex : nil
-                if interaction.hoveredIndex != nextIndex {
-                    interaction.hoveredIndex = nextIndex
-                }
+        if !interaction.isHovered {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+                interaction.isHovered = true
             }
-        } else if interaction.isHovered || interaction.pinnedOpen {
-            withAnimation(.spring(response: 0.24, dampingFraction: 0.86)) {
-                interaction.isHovered = false
-                interaction.pinnedOpen = false
-                interaction.isDetailVisible = false
-                interaction.hoveredIndex = nil
-                interaction.collapseToken &+= 1
+        }
+
+        // Rail hover corridor: rightmost 110pt of panel
+        let isOverRail = location.x >= (frame.maxX - 110)
+        if isOverRail {
+            let topOffset = frame.maxY - location.y
+            let count = interaction.providerCount
+            guard count > 0 else { return }
+
+            let relY = topOffset - 42
+            let rawIndex = Int(floor(relY / 88))
+            let nextIndex = (relY >= 0 && rawIndex >= 0 && rawIndex < count) ? rawIndex : nil
+
+            if interaction.hoveredIndex != nextIndex {
+                withAnimation(.spring(response: 0.16, dampingFraction: 0.90)) {
+                    interaction.hoveredIndex = nextIndex
+                    interaction.isDetailVisible = (nextIndex != nil)
+                }
             }
         }
     }
@@ -375,11 +385,6 @@ struct NotchView: View {
     @Bindable var store: UsageStore
     @Bindable var interaction: NotchInteractionState
 
-    @State private var hoveredProvider: ProviderID?
-    @State private var selectedProvider: ProviderID?
-    @State private var hoveredYPosition: CGFloat = 86
-    @State private var autoHideTask: Task<Void, Never>?
-
     private var activeStatuses: [ProviderStatus] {
         let detected = store.detectedStatuses
         if !detected.isEmpty {
@@ -388,44 +393,29 @@ struct NotchView: View {
         return store.statuses
     }
 
-    private var activeStatus: ProviderStatus? {
-        let targetID = hoveredProvider ?? selectedProvider
-        if let targetID {
-            return activeStatuses.first { $0.provider == targetID }
+    private var activeIndex: Int? {
+        guard let idx = interaction.hoveredIndex, idx >= 0, idx < activeStatuses.count else {
+            return nil
         }
-        return activeStatuses.first
+        return idx
+    }
+
+    private var activeStatus: ProviderStatus? {
+        guard let idx = activeIndex else { return nil }
+        return activeStatuses[idx]
     }
 
     private var isExpanded: Bool {
-        interaction.isHovered || hoveredProvider != nil || interaction.pinnedOpen
-    }
-
-    private func cancelAutoHide() {
-        autoHideTask?.cancel()
-        autoHideTask = nil
-    }
-
-    private func scheduleAutoHide(delay: Double = 1.5) {
-        cancelAutoHide()
-        autoHideTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(delay))
-            guard !Task.isCancelled else { return }
-            withAnimation(.spring(response: 0.24, dampingFraction: 0.86)) {
-                if !interaction.pinnedOpen {
-                    hoveredProvider = nil
-                    interaction.hoveredIndex = nil
-                    interaction.isHovered = false
-                }
-            }
-        }
+        interaction.isHovered || interaction.pinnedOpen || activeIndex != nil
     }
 
     private var cardOffsetY: CGFloat {
-        max(16, hoveredYPosition - 70)
+        guard let idx = activeIndex else { return 16 }
+        return CGFloat(idx) * 88 + 16
     }
 
     private var relativePointerY: CGFloat {
-        hoveredYPosition - cardOffsetY
+        70
     }
 
     var body: some View {
@@ -434,23 +424,23 @@ struct NotchView: View {
             Color.clear
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    cancelAutoHide()
                     withAnimation(.spring(response: 0.24, dampingFraction: 0.86)) {
                         interaction.pinnedOpen = false
-                        hoveredProvider = nil
                         interaction.hoveredIndex = nil
                         interaction.isHovered = false
+                        interaction.isDetailVisible = false
                     }
                 }
 
             HStack(alignment: .top, spacing: 10) {
                 Spacer()
 
-                // Floating Detail Card - aligns with hovered provider level
-                if let status = activeStatus, (hoveredProvider != nil || interaction.pinnedOpen || (interaction.isHovered && selectedProvider != nil)) {
+                // Floating Detail Card - directly bound to activeStatus & activeIndex
+                if let status = activeStatus, (interaction.isHovered || interaction.pinnedOpen) {
                     DetailPopoverCard(status: status, pointerY: relativePointerY)
                         .id("DetailPopoverCard")
                         .offset(y: cardOffsetY)
+                        .animation(.spring(response: 0.18, dampingFraction: 0.88), value: cardOffsetY)
                         .transition(
                             .asymmetric(
                                 insertion: .scale(scale: 0.95, anchor: .trailing)
@@ -460,13 +450,6 @@ struct NotchView: View {
                                     .combined(with: .scale(scale: 0.96, anchor: .trailing))
                             )
                         )
-                        .onHover { hovering in
-                            if hovering {
-                                cancelAutoHide()
-                            } else {
-                                scheduleAutoHide(delay: 1.5)
-                            }
-                        }
                 }
 
                 // The Morphing Right-Edge Notch Rail
@@ -477,41 +460,8 @@ struct NotchView: View {
         .onChange(of: activeStatuses.count, initial: true) {
             interaction.providerCount = activeStatuses.count
         }
-        .onChange(of: hoveredProvider) {
-            interaction.isDetailVisible = hoveredProvider != nil || interaction.pinnedOpen
-        }
-        .onChange(of: interaction.hoveredIndex) {
-            if let idx = interaction.hoveredIndex, idx >= 0, idx < activeStatuses.count {
-                cancelAutoHide()
-                interaction.isHovered = true
-                let provider = activeStatuses[idx].provider
-                let transaction = Transaction(animation: nil)
-                withTransaction(transaction) {
-                    hoveredProvider = provider
-                    selectedProvider = provider
-                }
-                withAnimation(.spring(response: 0.18, dampingFraction: 0.88)) {
-                    hoveredYPosition = CGFloat(idx) * 88 + 86
-                }
-            } else if interaction.hoveredIndex == nil && !interaction.pinnedOpen {
-                withAnimation(.spring(response: 0.18, dampingFraction: 0.88)) {
-                    hoveredProvider = nil
-                }
-            }
-        }
-        .onChange(of: interaction.collapseToken) {
-            cancelAutoHide()
-            withAnimation(.spring(response: 0.24, dampingFraction: 0.86)) {
-                hoveredProvider = nil
-                selectedProvider = nil
-                interaction.hoveredIndex = nil
-                interaction.pinnedOpen = false
-                interaction.isHovered = false
-            }
-        }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isExpanded)
-        .animation(.spring(response: 0.18, dampingFraction: 0.88), value: hoveredYPosition)
     }
 
     // MARK: - Morphing Notch Rail
@@ -532,28 +482,12 @@ struct NotchView: View {
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, status in
                     ProviderRailItem(
                         status: status,
-                        isHovered: (hoveredProvider ?? (interaction.hoveredIndex.flatMap { items.indices.contains($0) ? items[$0].provider : nil })) == status.provider
+                        isHovered: interaction.hoveredIndex == index
                     )
                     .frame(width: 72, height: 76)
                     .contentShape(Rectangle())
-                    .onHover { hovering in
-                        if hovering {
-                            cancelAutoHide()
-                            interaction.isHovered = true
-                            interaction.hoveredIndex = index
-                            let transaction = Transaction(animation: nil)
-                            withTransaction(transaction) {
-                                hoveredProvider = status.provider
-                                selectedProvider = status.provider
-                            }
-                            withAnimation(.spring(response: 0.18, dampingFraction: 0.88)) {
-                                hoveredYPosition = CGFloat(index) * 88 + 86
-                            }
-                        }
-                    }
                     .onTapGesture {
                         withAnimation(.spring(response: 0.18, dampingFraction: 0.88)) {
-                            selectedProvider = status.provider
                             interaction.pinnedOpen.toggle()
                         }
                     }
