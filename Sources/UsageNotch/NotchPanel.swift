@@ -334,9 +334,9 @@ final class NotchPanelController {
         let count = interaction.providerCount
         let railBottom = CGFloat(count) * 88 + 48
 
-        // Check if mouse is hovering in the bottom-left corner pocket of the notch
-        let isOverBottomCorner = (location.x >= (frame.maxX - 135) && location.x <= (frame.maxX - 10)) &&
-                                 (topOffset >= (railBottom - 20) && topOffset <= (railBottom + 58))
+        // Check if mouse is hovering in the bottom curve / settings area
+        let isOverBottomCorner = (location.x >= (frame.maxX - 110) && location.x <= frame.maxX) &&
+                                 (topOffset >= (railBottom - 10) && topOffset <= (railBottom + 58))
 
         if isOverBottomCorner {
             if !interaction.isSettingsHovered {
@@ -566,7 +566,7 @@ struct NotchView: View {
         .overlay(alignment: .bottomLeading) {
             if isExpanded {
                 SettingsCornerButton(isHovered: interaction.isSettingsHovered)
-                    .offset(x: -8, y: -6)
+                    .offset(x: 10, y: 8)
             }
         }
     }
@@ -574,8 +574,8 @@ struct NotchView: View {
 
 // MARK: - Bottom Corner Settings Trigger
 
-/// Solid pitch-black circular button with a crisp white outline gear nestled in the outer bottom-left
-/// curve pocket of the notch, matching the design reference.
+/// Solid pitch-black circular button with a crisp white outline gear, flush with the notch rail
+/// and aligned directly below the provider column as shown in the reference image.
 struct SettingsCornerButton: View {
     let isHovered: Bool
 
@@ -585,16 +585,16 @@ struct SettingsCornerButton: View {
                 // Solid pitch-black circular background
                 Circle()
                     .fill(Color.black)
-                    .frame(width: 44, height: 44)
+                    .frame(width: 42, height: 42)
                     .overlay(
                         Circle()
-                            .stroke(Color.white.opacity(isHovered ? 0.35 : 0.2), lineWidth: 1)
+                            .stroke(Color.white.opacity(isHovered ? 0.35 : 0.18), lineWidth: 1)
                     )
-                    .shadow(color: Color.black.opacity(0.65), radius: 6, x: -2, y: 2)
+                    .shadow(color: Color.black.opacity(0.65), radius: 6, x: -1, y: 2)
 
                 // Clean white outline gear icon matching reference
                 Image(systemName: "gearshape")
-                    .font(.system(size: 20, weight: .medium))
+                    .font(.system(size: 19, weight: .medium))
                     .foregroundStyle(.white)
                     .rotationEffect(.degrees(isHovered ? 0 : -45))
             }
