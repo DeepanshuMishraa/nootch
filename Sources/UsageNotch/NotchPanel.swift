@@ -547,51 +547,48 @@ struct NotchView: View {
 
 // MARK: - Bottom Corner Settings Trigger
 
-/// Sleek obsidian glass capsule that blooms and slides out of the bottom S-curve scoop on hover.
+/// Pitch-black circular icon button with a crisp white gear that is 100% hidden by default
+/// and smoothly slides out of the bottom S-curve scoop when hovering the corner.
 struct SettingsCornerButton: View {
     @State private var isHovered: Bool = false
     let isExpanded: Bool
 
     var body: some View {
-        Button(action: openSettings) {
-            HStack(spacing: 5) {
-                Image(systemName: "gearshape.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(isHovered ? 1.0 : 0.65))
-                    .rotationEffect(.degrees(isHovered ? 0 : -45))
-                    .animation(.spring(response: 0.28, dampingFraction: 0.75), value: isHovered)
+        ZStack {
+            // Invisible generous hit-target area for corner hover detection
+            Color.clear
+                .frame(width: 46, height: 46)
+                .contentShape(Rectangle())
 
-                if isHovered {
-                    Text("Settings")
-                        .font(.system(size: 11, weight: .medium, design: .rounded))
-                        .foregroundStyle(.white)
-                        .transition(.asymmetric(
-                            insertion: .opacity.combined(with: .move(edge: .trailing)),
-                            removal: .opacity
-                        ))
+            if isExpanded {
+                Button(action: openSettings) {
+                    ZStack {
+                        // Pitch black circular body
+                        Circle()
+                            .fill(Color.black)
+                            .frame(width: 32, height: 32)
+                            .overlay(
+                                Circle()
+                                    .stroke(Color.white.opacity(isHovered ? 0.35 : 0.18), lineWidth: 1)
+                            )
+                            .shadow(color: Color.black.opacity(0.6), radius: 6, x: -2, y: 2)
+
+                        // Pure white settings gear icon
+                        Image(systemName: "gearshape.fill")
+                            .font(.system(size: 14.5, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .rotationEffect(.degrees(isHovered ? 0 : -45))
+                    }
                 }
+                .buttonStyle(.plain)
+                .offset(x: isHovered ? -12 : 6, y: -4)
+                .scaleEffect(isHovered ? 1.0 : 0.5)
+                .opacity(isHovered ? 1.0 : 0.0)
+                .animation(.spring(response: 0.24, dampingFraction: 0.8), value: isHovered)
             }
-            .padding(.horizontal, isHovered ? 9 : 6)
-            .padding(.vertical, 5)
-            .background(
-                Capsule()
-                    .fill(Color(red: 0.12, green: 0.12, blue: 0.14).opacity(isHovered ? 0.95 : 0.65))
-                    .overlay(
-                        Capsule()
-                            .stroke(Color.white.opacity(isHovered ? 0.28 : 0.12), lineWidth: 0.75)
-                    )
-                    .shadow(color: Color.black.opacity(isHovered ? 0.45 : 0.15), radius: isHovered ? 6 : 2, x: -1, y: 1)
-            )
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .offset(x: isHovered ? -10 : 0)
-        .scaleEffect(isHovered ? 1.0 : 0.82)
-        .opacity(isExpanded ? (isHovered ? 1.0 : 0.35) : 0.0)
-        .animation(.spring(response: 0.22, dampingFraction: 0.82), value: isHovered)
-        .animation(.spring(response: 0.28, dampingFraction: 0.84), value: isExpanded)
         .onHover { hovering in
-            withAnimation(.spring(response: 0.22, dampingFraction: 0.82)) {
+            withAnimation(.spring(response: 0.24, dampingFraction: 0.8)) {
                 isHovered = hovering
             }
         }
