@@ -566,7 +566,7 @@ struct NotchView: View {
         .overlay(alignment: .bottomLeading) {
             if isExpanded {
                 SettingsCornerButton(isHovered: interaction.isSettingsHovered)
-                    .offset(x: 4, y: -4)
+                    .offset(x: 0, y: 18)
             }
         }
     }
@@ -575,7 +575,7 @@ struct NotchView: View {
 // MARK: - Bottom Corner Settings Trigger
 
 /// Solid pitch-black circular button with a crisp white outline gear, flush with the notch rail
-/// and aligned directly below the provider column as shown in the reference image.
+/// and nestled comfortably below the curve as shown in the reference image.
 struct SettingsCornerButton: View {
     let isHovered: Bool
 
@@ -585,7 +585,7 @@ struct SettingsCornerButton: View {
                 // Solid pitch-black circular background
                 Circle()
                     .fill(Color.black)
-                    .frame(width: 42, height: 42)
+                    .frame(width: 40, height: 40)
                     .overlay(
                         Circle()
                             .stroke(Color.white.opacity(isHovered ? 0.35 : 0.18), lineWidth: 1)
@@ -594,7 +594,7 @@ struct SettingsCornerButton: View {
 
                 // Clean white outline gear icon matching reference
                 Image(systemName: "gearshape")
-                    .font(.system(size: 19, weight: .medium))
+                    .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(.white)
                     .rotationEffect(.degrees(isHovered ? 0 : -45))
             }
