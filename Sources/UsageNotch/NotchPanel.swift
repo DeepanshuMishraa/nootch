@@ -566,7 +566,7 @@ struct NotchView: View {
         .overlay(alignment: .bottomLeading) {
             if isExpanded {
                 SettingsCornerButton(isHovered: interaction.isSettingsHovered)
-                    .offset(x: 0, y: 18)
+                    .offset(x: 10, y: 24)
             }
         }
     }
@@ -585,7 +585,7 @@ struct SettingsCornerButton: View {
                 // Solid pitch-black circular background
                 Circle()
                     .fill(Color.black)
-                    .frame(width: 40, height: 40)
+                    .frame(width: 52, height: 52)
                     .overlay(
                         Circle()
                             .stroke(Color.white.opacity(isHovered ? 0.35 : 0.18), lineWidth: 1)
@@ -594,7 +594,7 @@ struct SettingsCornerButton: View {
 
                 // Clean white outline gear icon matching reference
                 Image(systemName: "gearshape")
-                    .font(.system(size: 18, weight: .medium))
+                    .font(.system(size: 24, weight: .medium))
                     .foregroundStyle(.white)
                     .rotationEffect(.degrees(isHovered ? 0 : -45))
             }
