@@ -219,6 +219,7 @@ final class NotchInteractionState {
     var isHovered = false
     var pinnedOpen = false
     var isDetailVisible = false
+    var isSettingsHovered = false
     var providerCount = 0
     var hoveredIndex: Int?
     var collapseToken = 0
@@ -247,6 +248,7 @@ final class NotchPanelController {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.interaction.isHovered = false
+                self.interaction.isSettingsHovered = false
                 self.interaction.hoveredIndex = nil
                 self.interaction.collapseToken &+= 1
             }
@@ -314,6 +316,7 @@ final class NotchPanelController {
                     interaction.isHovered = false
                     interaction.pinnedOpen = false
                     interaction.isDetailVisible = false
+                    interaction.isSettingsHovered = false
                     interaction.hoveredIndex = nil
                     interaction.collapseToken &+= 1
                 }
@@ -327,21 +330,43 @@ final class NotchPanelController {
             }
         }
 
-        // Rail hover corridor: rightmost 110pt of panel
-        let isOverRail = location.x >= (frame.maxX - 110)
-        if isOverRail {
-            let topOffset = frame.maxY - location.y
-            let count = interaction.providerCount
-            guard count > 0 else { return }
+        let topOffset = frame.maxY - location.y
+        let count = interaction.providerCount
+        let railBottom = CGFloat(count) * 88 + 48
 
-            let relY = topOffset - 42
-            let rawIndex = Int(floor(relY / 88))
-            let nextIndex = (relY >= 0 && rawIndex >= 0 && rawIndex < count) ? rawIndex : nil
+        // Check if mouse is hovering in the bottom S-curve scoop corner
+        let isOverBottomCorner = (location.x >= (frame.maxX - 130) && location.x <= frame.maxX) &&
+                                 (topOffset >= (railBottom - 18) && topOffset <= (railBottom + 55))
 
-            if interaction.hoveredIndex != nextIndex {
-                withAnimation(.spring(response: 0.16, dampingFraction: 0.90)) {
-                    interaction.hoveredIndex = nextIndex
-                    interaction.isDetailVisible = (nextIndex != nil)
+        if isOverBottomCorner {
+            if !interaction.isSettingsHovered {
+                withAnimation(.spring(response: 0.22, dampingFraction: 0.82)) {
+                    interaction.isSettingsHovered = true
+                    interaction.hoveredIndex = nil
+                    interaction.isDetailVisible = false
+                }
+            }
+        } else {
+            if interaction.isSettingsHovered {
+                withAnimation(.spring(response: 0.22, dampingFraction: 0.82)) {
+                    interaction.isSettingsHovered = false
+                }
+            }
+
+            // Rail hover corridor: rightmost 110pt of panel
+            let isOverRail = location.x >= (frame.maxX - 110)
+            if isOverRail {
+                guard count > 0 else { return }
+
+                let relY = topOffset - 42
+                let rawIndex = Int(floor(relY / 88))
+                let nextIndex = (relY >= 0 && rawIndex >= 0 && rawIndex < count) ? rawIndex : nil
+
+                if interaction.hoveredIndex != nextIndex {
+                    withAnimation(.spring(response: 0.16, dampingFraction: 0.90)) {
+                        interaction.hoveredIndex = nextIndex
+                        interaction.isDetailVisible = (nextIndex != nil)
+                    }
                 }
             }
         }
@@ -372,6 +397,7 @@ final class NotchPanelController {
             interaction.isHovered = false
             interaction.pinnedOpen = false
             interaction.isDetailVisible = false
+            interaction.isSettingsHovered = false
             interaction.hoveredIndex = nil
             interaction.collapseToken &+= 1
         }
@@ -406,7 +432,7 @@ struct NotchView: View {
     }
 
     private var isExpanded: Bool {
-        interaction.isHovered || interaction.pinnedOpen || activeIndex != nil
+        interaction.isHovered || interaction.pinnedOpen || activeIndex != nil || interaction.isSettingsHovered
     }
 
     private var cardOffsetY: CGFloat {
@@ -429,6 +455,7 @@ struct NotchView: View {
                         interaction.hoveredIndex = nil
                         interaction.isHovered = false
                         interaction.isDetailVisible = false
+                        interaction.isSettingsHovered = false
                     }
                 }
 
@@ -507,7 +534,6 @@ struct NotchView: View {
             .frame(width: 72)
         }
         .frame(width: isExpanded ? 72 : 10, height: isExpanded ? nil : 64, alignment: .topTrailing)
-        .clipped()
         .background(
             RightEdgeNotchShape(
                 flareWidth: isExpanded ? 24 : 0,
@@ -537,55 +563,46 @@ struct NotchView: View {
                 }
             }
         }
-        .overlay(alignment: .bottomTrailing) {
-            SettingsCornerButton(isExpanded: isExpanded)
+        .overlay(alignment: .bottomLeading) {
+            if isExpanded {
+                SettingsCornerButton(isHovered: interaction.isSettingsHovered)
+                    .offset(x: -30, y: 14)
+            }
         }
     }
 }
 
 // MARK: - Bottom Corner Settings Trigger
 
-/// Prominent pitch-black circular button with a bold 20pt white gear icon that covers the entire
-/// bottom C-shaped scoop region and smoothly blooms on hover.
+/// Pitch-black circular icon button with a crisp white gear nestled in the empty corner bay
+/// outside the notch that blooms when hovering the corner.
 struct SettingsCornerButton: View {
-    @State private var isHovered: Bool = false
-    let isExpanded: Bool
+    let isHovered: Bool
 
     var body: some View {
-        ZStack {
-            if isExpanded {
-                Button(action: openSettings) {
-                    ZStack {
-                        // Prominent pitch black circular body filling the scoop
+        Button(action: openSettings) {
+            ZStack {
+                // Pitch black circular body
+                Circle()
+                    .fill(Color.black)
+                    .frame(width: 38, height: 38)
+                    .overlay(
                         Circle()
-                            .fill(Color.black)
-                            .frame(width: 44, height: 44)
-                            .overlay(
-                                Circle()
-                                    .stroke(Color.white.opacity(isHovered ? 0.35 : 0.18), lineWidth: 1)
-                            )
-                            .shadow(color: Color.black.opacity(0.6), radius: 6, x: -2, y: 2)
+                            .stroke(Color.white.opacity(isHovered ? 0.35 : 0.18), lineWidth: 1)
+                    )
+                    .shadow(color: Color.black.opacity(0.6), radius: 6, x: -2, y: 2)
 
-                        // Bold stark white settings gear icon
-                        Image(systemName: "gearshape.fill")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .rotationEffect(.degrees(isHovered ? 0 : -45))
-                    }
-                    .scaleEffect(isHovered ? 1.0 : 0.6)
-                    .opacity(isHovered ? 1.0 : 0.0)
-                    .animation(.spring(response: 0.24, dampingFraction: 0.8), value: isHovered)
-                }
-                .buttonStyle(.plain)
+                // Bold stark white settings gear icon
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .rotationEffect(.degrees(isHovered ? 0 : -45))
             }
+            .scaleEffect(isHovered ? 1.0 : 0.5)
+            .opacity(isHovered ? 1.0 : 0.0)
+            .animation(.spring(response: 0.24, dampingFraction: 0.8), value: isHovered)
         }
-        .frame(width: 72, height: 56)
-        .contentShape(Rectangle())
-        .onHover { hovering in
-            withAnimation(.spring(response: 0.24, dampingFraction: 0.8)) {
-                isHovered = hovering
-            }
-        }
+        .buttonStyle(.plain)
     }
 
     private func openSettings() {
