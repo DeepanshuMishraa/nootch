@@ -18,8 +18,8 @@ private actor AgyProcessKeeper {
         if let process, process.isRunning { return }
         let process = Process()
         let input = Pipe()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = ["--prompt-interactive"]
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/script")
+        process.arguments = ["-q", "/dev/null", executable, "--dangerously-skip-permissions"]
         process.standardInput = input
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
@@ -83,8 +83,12 @@ struct AntigravityAdapter: ProviderAdapter {
     let provider: ProviderID = .antigravity
 
     func detect() async -> DetectionResult {
-        let path = NSString(string: "~/Library/Application Support/Antigravity").expandingTildeInPath
-        return DetectionResult(detected: FileManager.default.fileExists(atPath: path), source: "Antigravity local quota")
+        let appSupport = NSString(string: "~/Library/Application Support/Antigravity").expandingTildeInPath
+        let candidates = ["~/.local/bin/agy", "/opt/homebrew/bin/agy", "/usr/local/bin/agy"]
+            .map { NSString(string: $0).expandingTildeInPath }
+        let installed = FileManager.default.fileExists(atPath: appSupport)
+            || candidates.contains(where: FileManager.default.isExecutableFile(atPath:))
+        return DetectionResult(detected: installed, source: "Antigravity local quota")
     }
 
     func fetch() async -> ProviderStatus {
@@ -94,13 +98,8 @@ struct AntigravityAdapter: ProviderAdapter {
     private func fetch(attemptLaunch: Bool) async -> ProviderStatus {
         guard (await detect()).detected else { return .unavailable(.antigravity, detected: false) }
         do {
-            let processes = try await ProviderProcess.run("/bin/ps", arguments: ["ax", "-o", "pid=,command="])
-            let pids = processes.split(separator: "\n").compactMap { line -> String? in
-                let text = String(line).trimmingCharacters(in: .whitespaces)
-                guard (text.contains("agy") || text.contains("language_server") || text.contains("Antigravity")),
-                      !text.contains("UsageNotch") else { return nil }
-                return text.split(separator: " ").first.map(String.init)
-            }
+            let processes = try await ProviderProcess.run("/usr/bin/pgrep", arguments: ["-x", "agy"])
+            let pids = processes.split(separator: "\n").map(String.init)
             var lastError: Error = ProviderFetchFailure.message("Antigravity quota service did not answer. Retrying automatically.")
             for pid in pids {
                 do {
@@ -152,11 +151,13 @@ struct AntigravityAdapter: ProviderAdapter {
         let windows = groups.flatMap { group -> [(label: String, window: UsageWindow)] in
             guard let buckets = group["buckets"] as? [[String: Any]] else { return [] }
             return buckets.compactMap { bucket in
-                let remaining: Double? = if let value = bucket["remainingFraction"] as? Double {
-                    value
+                let remaining: Double? = if let value = bucket["remainingFraction"] as? NSNumber {
+                    value.doubleValue
+                } else if let value = bucket["remainingFraction"] as? String {
+                    Double(value)
                 } else if let remainingObject = bucket["remaining"] as? [String: Any] {
-                    remainingObject["remainingFraction"] as? Double
-                        ?? remainingObject["value"] as? Double
+                    (remainingObject["remainingFraction"] as? NSNumber)?.doubleValue
+                        ?? (remainingObject["value"] as? NSNumber)?.doubleValue
                 } else {
                     nil
                 }
@@ -170,7 +171,7 @@ struct AntigravityAdapter: ProviderAdapter {
                 return (label: label, window: window)
             }
         }
-        let fiveHour = windows.first { $0.label.contains("five") || $0.label.contains("5 hour") }?.window
+        let fiveHour = windows.first { $0.label.contains("five") || $0.label.contains("5 hour") || $0.label.contains("5h") }?.window
         let weekly = windows.first { $0.label.contains("week") }?.window
         guard fiveHour != nil || weekly != nil else {
             throw ProviderFetchFailure.message("Antigravity returned no named quota windows.")

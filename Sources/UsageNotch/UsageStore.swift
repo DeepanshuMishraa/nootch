@@ -50,7 +50,8 @@ final class UsageStore {
                     primary: previous.primary,
                     secondary: previous.secondary,
                     error: fresh.error,
-                    updatedAt: previous.updatedAt)
+                    updatedAt: previous.updatedAt,
+                    costUsage: previous.costUsage)
             }
             Self.saveCachedStatuses(self.statuses)
             self.lastRefresh = Date()

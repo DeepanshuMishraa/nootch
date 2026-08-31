@@ -452,6 +452,7 @@ struct NotchView: View {
                 // Floating Detail Card - aligns with hovered provider level
                 if let status = activeStatus, (hoveredProvider != nil || interaction.pinnedOpen || (interaction.isHovered && selectedProvider != nil)) {
                     DetailPopoverCard(status: status, pointerY: relativePointerY)
+                        .id("DetailPopoverCard")
                         .offset(y: cardOffsetY)
                         .transition(
                             .asymmetric(
@@ -714,6 +715,8 @@ struct DetailPopoverCard: View {
                 }
             }
 
+            costUsageSection
+
             if let error = status.error {
                 Text(error)
                     .font(.system(size: 11, weight: .regular))
@@ -734,6 +737,60 @@ struct DetailPopoverCard: View {
                 )
                 .shadow(color: Color.black.opacity(0.65), radius: 24, x: -8, y: 10)
         )
+    }
+
+    @ViewBuilder
+    private var costUsageSection: some View {
+        if let cost = status.costUsage, cost.historyAvailable {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Token usage")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.85))
+                HStack {
+                    Text("Today")
+                    Spacer()
+                    Text(Self.tokenAndCost(tokens: cost.todayTokens, cost: cost.todayCostUSD))
+                }
+                HStack {
+                    Text("Last 30 days")
+                    Spacer()
+                    Text(Self.tokenAndCost(tokens: cost.last30DaysTokens, cost: cost.last30DaysCostUSD))
+                }
+                .foregroundStyle(Color.white.opacity(0.6))
+                .font(.system(size: 11.5, weight: .regular))
+            }
+        } else {
+            EmptyView()
+        }
+    }
+
+    private static func tokenAndCost(tokens: Int?, cost: Double?) -> String {
+        guard let tokens else { return "—" }
+        let tokenText = Self.compactTokenCount(tokens)
+        guard let cost else { return tokenText }
+        return "\(tokenText) · \(String(format: "$%.2f", cost))"
+    }
+
+    private static func compactTokenCount(_ tokens: Int) -> String {
+        let value = Double(abs(tokens))
+        let suffix: String
+        let scaled: Double
+        switch value {
+        case 1_000_000_000...:
+            scaled = value / 1_000_000_000
+            suffix = "b"
+        case 1_000_000...:
+            scaled = value / 1_000_000
+            suffix = "m"
+        case 1_000...:
+            scaled = value / 1_000
+            suffix = "k"
+        default:
+            return tokens.formatted()
+        }
+        let precision = scaled >= 100 ? "%.0f" : scaled >= 10 ? "%.1f" : "%.2f"
+        let sign = tokens < 0 ? "-" : ""
+        return "\(sign)\(String(format: precision, scaled))\(suffix)"
     }
 
     private var defaultGradient: LinearGradient {

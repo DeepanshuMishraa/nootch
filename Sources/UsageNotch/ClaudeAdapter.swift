@@ -31,7 +31,8 @@ struct ClaudeAdapter: ProviderAdapter {
                 primary: usage.fiveHour?.usageWindow(minutes: 300),
                 secondary: usage.sevenDay?.usageWindow(minutes: 10080),
                 error: nil,
-                updatedAt: Date())
+                updatedAt: Date(),
+                costUsage: TokenUsageScanner.scanClaude())
         } catch {
             return .unavailable(
                 .claude,

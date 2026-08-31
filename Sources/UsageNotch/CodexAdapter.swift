@@ -29,7 +29,7 @@ struct CodexAdapter: ProviderAdapter {
             guard let http = response as? HTTPURLResponse else { throw FetchError.invalidResponse }
             guard (200...299).contains(http.statusCode) else { throw FetchError.http(http.statusCode) }
             let usage = try JSONDecoder().decode(CodexUsageResponse.self, from: data)
-            return ProviderStatus(provider: .codex, detected: true, source: "Codex OAuth", primary: usage.rateLimit?.primaryWindow?.window, secondary: usage.rateLimit?.secondaryWindow?.window, error: nil, updatedAt: Date())
+            return ProviderStatus(provider: .codex, detected: true, source: "Codex OAuth", primary: usage.rateLimit?.primaryWindow?.window, secondary: usage.rateLimit?.secondaryWindow?.window, error: nil, updatedAt: Date(), costUsage: TokenUsageScanner.scanCodex())
         } catch is CancellationError {
             return .unavailable(.codex, detected: true, source: "Codex OAuth", error: "Refresh cancelled")
         } catch let error as FetchError {

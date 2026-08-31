@@ -130,6 +130,18 @@ enum ProviderID: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
+struct CostUsageSummary: Sendable, Equatable, Codable {
+    let todayTokens: Int?
+    let todayCostUSD: Double?
+    let last30DaysTokens: Int?
+    let last30DaysCostUSD: Double?
+    let historyAvailable: Bool
+
+    static func unavailable() -> Self {
+        Self(todayTokens: nil, todayCostUSD: nil, last30DaysTokens: nil, last30DaysCostUSD: nil, historyAvailable: false)
+    }
+}
+
 struct ProviderStatus: Identifiable, Sendable, Equatable, Codable {
     let provider: ProviderID
     let detected: Bool
@@ -138,7 +150,28 @@ struct ProviderStatus: Identifiable, Sendable, Equatable, Codable {
     let secondary: UsageWindow?
     let error: String?
     let updatedAt: Date?
+    let costUsage: CostUsageSummary?
     var id: ProviderID { provider }
+
+    init(
+        provider: ProviderID,
+        detected: Bool,
+        source: String?,
+        primary: UsageWindow?,
+        secondary: UsageWindow?,
+        error: String?,
+        updatedAt: Date?,
+        costUsage: CostUsageSummary? = nil)
+    {
+        self.provider = provider
+        self.detected = detected
+        self.source = source
+        self.primary = primary
+        self.secondary = secondary
+        self.error = error
+        self.updatedAt = updatedAt
+        self.costUsage = costUsage
+    }
 
     static func unavailable(_ provider: ProviderID, detected: Bool, source: String? = nil, error: String? = nil) -> Self {
         Self(provider: provider, detected: detected, source: source, primary: nil, secondary: nil, error: error, updatedAt: nil)
