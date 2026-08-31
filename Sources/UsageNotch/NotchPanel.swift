@@ -334,13 +334,13 @@ final class NotchPanelController {
         let count = interaction.providerCount
         let railBottom = CGFloat(count) * 88 + 48
 
-        // Check if mouse is hovering in the bottom S-curve scoop corner
-        let isOverBottomCorner = (location.x >= (frame.maxX - 130) && location.x <= frame.maxX) &&
-                                 (topOffset >= (railBottom - 18) && topOffset <= (railBottom + 55))
+        // Check if mouse is hovering in the bottom flare of the notch
+        let isOverBottomFlare = (location.x >= (frame.maxX - 110)) &&
+                                (topOffset >= (railBottom - 12) && topOffset <= (railBottom + 56))
 
-        if isOverBottomCorner {
+        if isOverBottomFlare {
             if !interaction.isSettingsHovered {
-                withAnimation(.spring(response: 0.22, dampingFraction: 0.82)) {
+                withAnimation(.spring(response: 0.20, dampingFraction: 0.84)) {
                     interaction.isSettingsHovered = true
                     interaction.hoveredIndex = nil
                     interaction.isDetailVisible = false
@@ -348,7 +348,7 @@ final class NotchPanelController {
             }
         } else {
             if interaction.isSettingsHovered {
-                withAnimation(.spring(response: 0.22, dampingFraction: 0.82)) {
+                withAnimation(.spring(response: 0.20, dampingFraction: 0.84)) {
                     interaction.isSettingsHovered = false
                 }
             }
@@ -563,10 +563,10 @@ struct NotchView: View {
                 }
             }
         }
-        .overlay(alignment: .bottomLeading) {
+        .overlay(alignment: .bottom) {
             if isExpanded {
                 SettingsCornerButton(isHovered: interaction.isSettingsHovered)
-                    .offset(x: -30, y: 14)
+                    .frame(width: 72, height: 48)
             }
         }
     }
@@ -574,33 +574,25 @@ struct NotchView: View {
 
 // MARK: - Bottom Corner Settings Trigger
 
-/// Pitch-black circular icon button with a crisp white gear nestled in the empty corner bay
-/// outside the notch that blooms when hovering the corner.
+/// Crisp white gear icon nestled directly inside the bottom flare of the black notch rail,
+/// aligned on the same central axis as the provider column.
 struct SettingsCornerButton: View {
     let isHovered: Bool
 
     var body: some View {
         Button(action: openSettings) {
             ZStack {
-                // Pitch black circular body
-                Circle()
-                    .fill(Color.black)
-                    .frame(width: 38, height: 38)
-                    .overlay(
-                        Circle()
-                            .stroke(Color.white.opacity(isHovered ? 0.35 : 0.18), lineWidth: 1)
-                    )
-                    .shadow(color: Color.black.opacity(0.6), radius: 6, x: -2, y: 2)
-
-                // Bold stark white settings gear icon
+                // Stark white settings gear icon
                 Image(systemName: "gearshape.fill")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 19, weight: .medium))
                     .foregroundStyle(.white)
                     .rotationEffect(.degrees(isHovered ? 0 : -45))
             }
-            .scaleEffect(isHovered ? 1.0 : 0.5)
+            .frame(width: 38, height: 38)
+            .contentShape(Circle())
+            .scaleEffect(isHovered ? 1.0 : 0.6)
             .opacity(isHovered ? 1.0 : 0.0)
-            .animation(.spring(response: 0.24, dampingFraction: 0.8), value: isHovered)
+            .animation(.spring(response: 0.22, dampingFraction: 0.8), value: isHovered)
         }
         .buttonStyle(.plain)
     }
