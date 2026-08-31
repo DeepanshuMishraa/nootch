@@ -537,6 +537,73 @@ struct NotchView: View {
                 }
             }
         }
+        .overlay(alignment: .bottomTrailing) {
+            SettingsCornerButton(isExpanded: isExpanded)
+                .padding(.trailing, 8)
+                .padding(.bottom, 6)
+        }
+    }
+}
+
+// MARK: - Bottom Corner Settings Trigger
+
+/// Sleek obsidian glass capsule that blooms and slides out of the bottom S-curve scoop on hover.
+struct SettingsCornerButton: View {
+    @State private var isHovered: Bool = false
+    let isExpanded: Bool
+
+    var body: some View {
+        Button(action: openSettings) {
+            HStack(spacing: 5) {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(isHovered ? 1.0 : 0.65))
+                    .rotationEffect(.degrees(isHovered ? 0 : -45))
+                    .animation(.spring(response: 0.28, dampingFraction: 0.75), value: isHovered)
+
+                if isHovered {
+                    Text("Settings")
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white)
+                        .transition(.asymmetric(
+                            insertion: .opacity.combined(with: .move(edge: .trailing)),
+                            removal: .opacity
+                        ))
+                }
+            }
+            .padding(.horizontal, isHovered ? 9 : 6)
+            .padding(.vertical, 5)
+            .background(
+                Capsule()
+                    .fill(Color(red: 0.12, green: 0.12, blue: 0.14).opacity(isHovered ? 0.95 : 0.65))
+                    .overlay(
+                        Capsule()
+                            .stroke(Color.white.opacity(isHovered ? 0.28 : 0.12), lineWidth: 0.75)
+                    )
+                    .shadow(color: Color.black.opacity(isHovered ? 0.45 : 0.15), radius: isHovered ? 6 : 2, x: -1, y: 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .offset(x: isHovered ? -10 : 0)
+        .scaleEffect(isHovered ? 1.0 : 0.82)
+        .opacity(isExpanded ? (isHovered ? 1.0 : 0.35) : 0.0)
+        .animation(.spring(response: 0.22, dampingFraction: 0.82), value: isHovered)
+        .animation(.spring(response: 0.28, dampingFraction: 0.84), value: isExpanded)
+        .onHover { hovering in
+            withAnimation(.spring(response: 0.22, dampingFraction: 0.82)) {
+                isHovered = hovering
+            }
+        }
+    }
+
+    private func openSettings() {
+        NSApp.activate(ignoringOtherApps: true)
+        if #available(macOS 14.0, *) {
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        } else {
+            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+        }
     }
 }
 
