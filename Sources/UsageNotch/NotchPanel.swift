@@ -313,6 +313,19 @@ final class NotchPanelController {
                     interaction.isHovered = true
                 }
             }
+
+            // 120Hz continuous vertical slot tracking across the notch rail
+            let isOverRail = location.x >= (frame.maxX - 84) && location.x <= (frame.maxX + 10)
+            if isOverRail {
+                let topOffset = frame.maxY - location.y
+                let relY = topOffset - 42
+                let count = interaction.providerCount
+                let rawIndex = Int(floor(relY / 88))
+                let nextIndex = (relY >= 0 && rawIndex >= 0 && rawIndex < count) ? rawIndex : nil
+                if interaction.hoveredIndex != nextIndex {
+                    interaction.hoveredIndex = nextIndex
+                }
+            }
         } else if interaction.isHovered || interaction.pinnedOpen {
             withAnimation(.spring(response: 0.24, dampingFraction: 0.86)) {
                 interaction.isHovered = false
