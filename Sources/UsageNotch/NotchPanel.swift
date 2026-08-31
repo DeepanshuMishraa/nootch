@@ -234,6 +234,7 @@ final class NotchPanelController {
     private var localClickMonitor: Any?
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
+    private var autoCollapseTask: Task<Void, Never>?
 
     func show(store: UsageStore) {
         panel.place()
@@ -247,6 +248,7 @@ final class NotchPanelController {
         hostedView.onExit = { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                self.autoCollapseTask?.cancel()
                 self.interaction.isHovered = false
                 self.interaction.isSettingsHovered = false
                 self.interaction.hoveredIndex = nil
@@ -320,6 +322,7 @@ final class NotchPanelController {
                     interaction.hoveredIndex = nil
                     interaction.collapseToken &+= 1
                 }
+                self.autoCollapseTask?.cancel()
             }
             return
         }
@@ -328,15 +331,22 @@ final class NotchPanelController {
             withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
                 interaction.isHovered = true
             }
+            scheduleAutoCollapse()
         }
 
         let topOffset = frame.maxY - location.y
         let count = interaction.providerCount
-        let railBottom = CGFloat(count) * 88 + 48
+        // The provider stack ends after its item frames, spacing, and bottom padding.
+        let railBottom = CGFloat(count) * 88 + 84
+        let isOverSettingsButton = interaction.isSettingsHovered &&
+                                   location.x >= (frame.maxX - 72) &&
+                                   topOffset >= (railBottom - 42) &&
+                                   topOffset <= (railBottom + 30)
 
-        // Check if mouse is hovering in the bottom curve / settings area
-        let isOverBottomCorner = (location.x >= (frame.maxX - 110) && location.x <= frame.maxX) &&
-                                 (topOffset >= (railBottom - 10) && topOffset <= (railBottom + 58))
+        // Activate settings only from the empty space below the provider stack.
+        let isOverBottomCorner = ((location.x >= (frame.maxX - 90) && location.x <= frame.maxX) &&
+                                  (topOffset >= railBottom && topOffset <= (railBottom + 80))) ||
+                                 isOverSettingsButton
 
         if isOverBottomCorner {
             if !interaction.isSettingsHovered {
@@ -392,7 +402,23 @@ final class NotchPanelController {
         return triggerRegion.union(detailRegion)
     }
 
+    private func scheduleAutoCollapse() {
+        autoCollapseTask?.cancel()
+        autoCollapseTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard let self, !self.interaction.pinnedOpen else { return }
+            withAnimation(.spring(response: 0.24, dampingFraction: 0.86)) {
+                self.interaction.isHovered = false
+                self.interaction.isDetailVisible = false
+                self.interaction.isSettingsHovered = false
+                self.interaction.hoveredIndex = nil
+                self.interaction.collapseToken &+= 1
+            }
+        }
+    }
+
     private func collapseFromOutsideClick() {
+        autoCollapseTask?.cancel()
         withAnimation(.spring(response: 0.24, dampingFraction: 0.86)) {
             interaction.isHovered = false
             interaction.pinnedOpen = false
@@ -565,8 +591,11 @@ struct NotchView: View {
         }
         .overlay(alignment: .bottomLeading) {
             if isExpanded {
-                SettingsCornerButton(isHovered: interaction.isSettingsHovered)
-                    .offset(x: 10, y: 24)
+                SettingsCornerButton(
+                    isHovered: interaction.isSettingsHovered,
+                    onInteract: { interaction.pinnedOpen = true }
+                )
+                .offset(x: 1, y: 30)
             }
         }
     }
@@ -578,9 +607,13 @@ struct NotchView: View {
 /// and nestled comfortably below the curve as shown in the reference image.
 struct SettingsCornerButton: View {
     let isHovered: Bool
+    let onInteract: () -> Void
 
     var body: some View {
-        Button(action: openSettings) {
+        Button {
+            onInteract()
+            openSettings()
+        } label: {
             ZStack {
                 // Solid pitch-black circular background
                 Circle()
@@ -603,6 +636,8 @@ struct SettingsCornerButton: View {
             .animation(.spring(response: 0.22, dampingFraction: 0.8), value: isHovered)
         }
         .buttonStyle(.plain)
+        .frame(width: 72, height: 72)
+        .contentShape(Rectangle())
     }
 
     private func openSettings() {
