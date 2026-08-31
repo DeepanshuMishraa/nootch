@@ -539,54 +539,48 @@ struct NotchView: View {
         }
         .overlay(alignment: .bottomTrailing) {
             SettingsCornerButton(isExpanded: isExpanded)
-                .padding(.trailing, 8)
-                .padding(.bottom, 6)
         }
     }
 }
 
 // MARK: - Bottom Corner Settings Trigger
 
-/// Pitch-black circular icon button with a crisp white gear that is 100% hidden by default
-/// and smoothly slides out of the bottom S-curve scoop when hovering the corner.
+/// Prominent pitch-black circular button with a bold 20pt white gear icon that covers the entire
+/// bottom C-shaped scoop region and smoothly blooms on hover.
 struct SettingsCornerButton: View {
     @State private var isHovered: Bool = false
     let isExpanded: Bool
 
     var body: some View {
         ZStack {
-            // Invisible generous hit-target area for corner hover detection
-            Color.clear
-                .frame(width: 46, height: 46)
-                .contentShape(Rectangle())
-
             if isExpanded {
                 Button(action: openSettings) {
                     ZStack {
-                        // Pitch black circular body
+                        // Prominent pitch black circular body filling the scoop
                         Circle()
                             .fill(Color.black)
-                            .frame(width: 32, height: 32)
+                            .frame(width: 44, height: 44)
                             .overlay(
                                 Circle()
                                     .stroke(Color.white.opacity(isHovered ? 0.35 : 0.18), lineWidth: 1)
                             )
                             .shadow(color: Color.black.opacity(0.6), radius: 6, x: -2, y: 2)
 
-                        // Pure white settings gear icon
+                        // Bold stark white settings gear icon
                         Image(systemName: "gearshape.fill")
-                            .font(.system(size: 14.5, weight: .semibold))
+                            .font(.system(size: 20, weight: .semibold))
                             .foregroundStyle(.white)
                             .rotationEffect(.degrees(isHovered ? 0 : -45))
                     }
+                    .scaleEffect(isHovered ? 1.0 : 0.6)
+                    .opacity(isHovered ? 1.0 : 0.0)
+                    .animation(.spring(response: 0.24, dampingFraction: 0.8), value: isHovered)
                 }
                 .buttonStyle(.plain)
-                .offset(x: isHovered ? -12 : 6, y: -4)
-                .scaleEffect(isHovered ? 1.0 : 0.5)
-                .opacity(isHovered ? 1.0 : 0.0)
-                .animation(.spring(response: 0.24, dampingFraction: 0.8), value: isHovered)
             }
         }
+        .frame(width: 72, height: 56)
+        .contentShape(Rectangle())
         .onHover { hovering in
             withAnimation(.spring(response: 0.24, dampingFraction: 0.8)) {
                 isHovered = hovering
