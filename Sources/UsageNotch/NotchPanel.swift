@@ -518,6 +518,14 @@ struct NotchView: View {
 
     // MARK: - Morphing Notch Rail
 
+    private var hasNeedsAttention: Bool {
+        activeStatuses.contains { $0.activity.needsAttention }
+    }
+
+    private var hasWorking: Bool {
+        activeStatuses.contains { $0.activity.isWorking }
+    }
+
     private var morphingNotchRail: some View {
         let items = activeStatuses
 
@@ -569,26 +577,133 @@ struct NotchView: View {
             .fill(Color.black)
             .shadow(color: Color.black.opacity(isExpanded ? 0.5 : 0.35), radius: isExpanded ? 14 : 5, x: isExpanded ? -4 : -1, y: 0)
         )
+        .overlay(alignment: .topTrailing) {
+            if !isExpanded {
+                if hasNeedsAttention {
+                    // Ambient Amber Beacon on Collapsed Notch Bezel
+                    Circle()
+                        .fill(Color(red: 1.0, green: 0.70, blue: 0.12))
+                        .frame(width: 5, height: 5)
+                        .shadow(color: Color(red: 1.0, green: 0.70, blue: 0.12), radius: 3)
+                        .padding(.trailing, 2.5)
+                        .padding(.top, 8)
+                } else if hasWorking {
+                    // Ambient Pure White Solid Dot on Collapsed Notch Bezel
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 4, height: 4)
+                        .padding(.trailing, 2.5)
+                        .padding(.top, 8)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Live Agent Activity Motion Indicators
+
+/// High-precision Swiss chronograph aperture ring with 12 calibrated radial ticks
+/// and a razor-sharp orbiting laser needle (Zero glow, pure vector precision).
+struct PrecisionChronographAperture: View {
+    @State private var rotation: Double = 0
+
+    var body: some View {
+        ZStack {
+            // Outer Precision Bezel Hairline
+            Circle()
+                .stroke(Color.white.opacity(0.22), lineWidth: 1)
+
+            // 12 Calibrated Precision Ticks (Major Cardinals + Minor Subdivisions)
+            ForEach(0..<12, id: \.self) { i in
+                let isCardinal = (i % 3 == 0)
+                Rectangle()
+                    .fill(Color.white.opacity(isCardinal ? 0.65 : 0.28))
+                    .frame(width: isCardinal ? 1.5 : 1, height: isCardinal ? 4.5 : 3)
+                    .offset(y: -19.5)
+                    .rotationEffect(.degrees(Double(i) * 30))
+            }
+
+            // The Active Precision Orbiting Laser Arc
+            Circle()
+                .trim(from: 0, to: 0.33)
+                .stroke(
+                    AngularGradient(
+                        gradient: Gradient(colors: [
+                            .clear,
+                            Color.white.opacity(0.15),
+                            Color.white.opacity(0.65),
+                            Color.white
+                        ]),
+                        center: .center,
+                        startAngle: .degrees(0),
+                        endAngle: .degrees(120)
+                    ),
+                    style: StrokeStyle(lineWidth: 2.2, lineCap: .round)
+                )
+                .rotationEffect(.degrees(rotation))
+
+            // Precision Diamond Head Index
+            Rectangle()
+                .fill(Color.white)
+                .frame(width: 3.5, height: 3.5)
+                .rotationEffect(.degrees(45))
+                .offset(y: -21)
+                .rotationEffect(.degrees(rotation + 120))
+        }
+        .onAppear {
+            withAnimation(.linear(duration: 1.8).repeatForever(autoreverses: false)) {
+                rotation = 360
+            }
+        }
+    }
+}
+
+/// Radiant warm amber sonar beacon indicating that user input or approval is required.
+struct AgentNeedsAttentionBeacon: View {
+    @State private var pulse: Bool = false
+    private let accentColor = Color(red: 1.0, green: 0.70, blue: 0.12)
+
+    var body: some View {
+        ZStack {
+            // Layer 1: Sonar Radar Ping expanding outward
+            Circle()
+                .stroke(accentColor.opacity(pulse ? 0.0 : 0.7), lineWidth: 1.5)
+                .scaleEffect(pulse ? 1.32 : 1.0)
+
+            // Layer 2: Warm ambient inner rim glow
+            Circle()
+                .stroke(accentColor.opacity(pulse ? 0.45 : 0.2), lineWidth: 2)
+
+            // Layer 3: Jewel Badge at top-right
+            ZStack {
+                // Obsidian shadow base
+                Circle()
+                    .fill(Color(red: 0.08, green: 0.08, blue: 0.10))
+                    .frame(width: 14, height: 14)
+                    .shadow(color: Color.black.opacity(0.6), radius: 3, x: 0, y: 1)
+
+                // Glowing amber core with gentle heartbeat
+                Circle()
+                    .fill(accentColor)
+                    .frame(width: 8, height: 8)
+                    .scaleEffect(pulse ? 1.15 : 0.95)
+
+                // High-clarity spark
+                Circle()
+                    .fill(Color.white.opacity(0.95))
+                    .frame(width: 2.5, height: 2.5)
+            }
+            .offset(x: 15, y: -15)
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
+                pulse = true
+            }
+        }
     }
 }
 
 // MARK: - Provider Rail Item (Ring + Percentage)
-
-struct WorkingArc: View {
-    @State private var rotation = 0.0
-
-    var body: some View {
-        Circle()
-            .trim(from: 0, to: 0.2)
-            .stroke(.white.opacity(0.95), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-            .rotationEffect(.degrees(rotation - 90))
-            .onAppear {
-                withAnimation(.linear(duration: 0.9).repeatForever(autoreverses: false)) {
-                    rotation = 360
-                }
-            }
-    }
-}
 
 struct ProviderRailItem: View {
     let status: ProviderStatus
@@ -605,46 +720,47 @@ struct ProviderRailItem: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            // Circular Gauge Ring
+            // Circular Gauge / Active Activity Ring
             ZStack {
                 // Background Track Ring
                 Circle()
                     .stroke(Color.white.opacity(0.14), lineWidth: 3.5)
 
-                // Active Filled Gauge showing remaining balance
-                Circle()
-                    .trim(from: 0, to: max(0.02, CGFloat(remainingPercent / 100)))
-                    .stroke(
-                        gaugeColor,
-                        style: StrokeStyle(lineWidth: 3.5, lineCap: .round)
-                    )
-                    .rotationEffect(.degrees(-90))
+                // When STOPPED/IDLE: Display standard quota ring (Green / Yellow / Red based on remaining quota)
+                if !status.activity.isWorking {
+                    Circle()
+                        .trim(from: 0, to: max(0.02, CGFloat(remainingPercent / 100)))
+                        .stroke(
+                            gaugeColor,
+                            style: StrokeStyle(lineWidth: 3.5, lineCap: .round)
+                        )
+                        .rotationEffect(.degrees(-90))
+                }
 
-                // Working is shown by a separate arc so the quota ring keeps its meaning.
+                // When RUNNING: Completely transforms into the Precision Chronograph Aperture (Zero glow, pure precision)
                 if status.activity.isWorking {
                     if reduceMotion {
                         Circle()
-                            .trim(from: 0, to: 0.2)
-                            .stroke(.white.opacity(0.9), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                            .stroke(Color.white.opacity(0.85), style: StrokeStyle(lineWidth: 2.2, lineCap: .round))
                             .rotationEffect(.degrees(-90))
                     } else {
-                        WorkingArc()
+                        PrecisionChronographAperture()
                     }
                 } else if status.activity.needsAttention {
-                    Circle()
-                        .stroke(gaugeColor, style: StrokeStyle(lineWidth: 2.5, dash: [2.5, 3], dashPhase: 1))
-                        .padding(-3)
-                    Image(systemName: "exclamationmark")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(.black)
-                        .padding(3)
-                        .background(gaugeColor, in: Circle())
-                        .offset(x: 14, y: -14)
+                    if reduceMotion {
+                        Circle()
+                            .fill(Color(red: 1.0, green: 0.70, blue: 0.12))
+                            .frame(width: 8, height: 8)
+                            .offset(x: 15, y: -15)
+                    } else {
+                        AgentNeedsAttentionBeacon()
+                    }
                 }
 
                 // Provider Logo Center
                 ProviderLogo(provider: status.provider, size: 18)
                     .foregroundStyle(.white)
+                    .scaleEffect(status.activity.isWorking ? 1.04 : 1.0)
             }
             .frame(width: 42, height: 42)
             .scaleEffect(isHovered ? 1.06 : 1.0)
@@ -684,7 +800,7 @@ struct DetailPopoverCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            // Header: Logo + Provider Name + Resets Countdown
+            // Header: Logo + Provider Name + Live Activity Chip / Resets Countdown
             HStack(spacing: 8) {
                 ProviderLogo(provider: status.provider, size: 19)
                     .foregroundStyle(.white)
@@ -696,13 +812,40 @@ struct DetailPopoverCard: View {
                 Spacer()
 
                 if status.activity.isWorking {
-                    Text("Working")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.8))
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(Color.white)
+                            .frame(width: 5, height: 5)
+
+                        Text("Running")
+                            .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white)
+                    }
+                    .padding(.horizontal, 7.5)
+                    .padding(.vertical, 3)
+                    .background(
+                        Capsule()
+                            .fill(Color.white.opacity(0.12))
+                            .overlay(
+                                Capsule().stroke(Color.white.opacity(0.22), lineWidth: 0.75)
+                            )
+                    )
                 } else if status.activity.needsAttention {
-                    Text("Needs action")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(gaugeColor)
+                    HStack(spacing: 4.5) {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .font(.system(size: 9.5, weight: .bold))
+                            .foregroundStyle(Color(red: 1.0, green: 0.72, blue: 0.12))
+                        Text("Action Required")
+                            .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color(red: 1.0, green: 0.72, blue: 0.12))
+                    }
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(
+                        Capsule()
+                            .fill(Color(red: 1.0, green: 0.72, blue: 0.12).opacity(0.14))
+                            .overlay(Capsule().stroke(Color(red: 1.0, green: 0.72, blue: 0.12).opacity(0.38), lineWidth: 0.75))
+                    )
                 } else if let countdown = primaryWindow?.resetsInCountdown {
                     Text(countdown)
                         .font(.system(size: 12, weight: .regular))
