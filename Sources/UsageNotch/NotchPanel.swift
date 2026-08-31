@@ -313,22 +313,6 @@ final class NotchPanelController {
                     interaction.isHovered = true
                 }
             }
-
-            // Direct continuous vertical slot tracking when over the notch rail
-            let isOverRail = location.x >= (frame.maxX - 84) && location.x <= frame.maxX
-            if isOverRail {
-                let topOffset = frame.maxY - location.y
-                let contentTop: CGFloat = 48
-                let slotHeight: CGFloat = 88
-                let rawIndex = Int((topOffset - contentTop) / slotHeight)
-                let count = interaction.providerCount
-                let nextIndex = topOffset >= contentTop && rawIndex >= 0 && rawIndex < count ? rawIndex : nil
-                if interaction.hoveredIndex != nextIndex {
-                    withAnimation(.spring(response: 0.14, dampingFraction: 0.92)) {
-                        interaction.hoveredIndex = nextIndex
-                    }
-                }
-            }
         } else if interaction.isHovered || interaction.pinnedOpen {
             withAnimation(.spring(response: 0.24, dampingFraction: 0.86)) {
                 interaction.isHovered = false
@@ -380,7 +364,7 @@ struct NotchView: View {
 
     @State private var hoveredProvider: ProviderID?
     @State private var selectedProvider: ProviderID?
-    @State private var hoveredYPosition: CGFloat = 60
+    @State private var hoveredYPosition: CGFloat = 86
     @State private var autoHideTask: Task<Void, Never>?
 
     private var activeStatuses: [ProviderStatus] {
@@ -424,7 +408,7 @@ struct NotchView: View {
     }
 
     private var cardOffsetY: CGFloat {
-        max(16, ((hoveredYPosition - 70) / 88) * 74 + 16)
+        max(16, hoveredYPosition - 70)
     }
 
     private var relativePointerY: CGFloat {
@@ -487,13 +471,14 @@ struct NotchView: View {
             if let idx = interaction.hoveredIndex, idx >= 0, idx < activeStatuses.count {
                 cancelAutoHide()
                 interaction.isHovered = true
+                let provider = activeStatuses[idx].provider
                 let transaction = Transaction(animation: nil)
                 withTransaction(transaction) {
-                    hoveredProvider = activeStatuses[idx].provider
-                    selectedProvider = activeStatuses[idx].provider
+                    hoveredProvider = provider
+                    selectedProvider = provider
                 }
                 withAnimation(.spring(response: 0.18, dampingFraction: 0.88)) {
-                    hoveredYPosition = CGFloat(idx) * 88 + 70
+                    hoveredYPosition = CGFloat(idx) * 88 + 86
                 }
             } else if interaction.hoveredIndex == nil && !interaction.pinnedOpen {
                 withAnimation(.spring(response: 0.18, dampingFraction: 0.88)) {
@@ -543,6 +528,14 @@ struct NotchView: View {
                             cancelAutoHide()
                             interaction.isHovered = true
                             interaction.hoveredIndex = index
+                            let transaction = Transaction(animation: nil)
+                            withTransaction(transaction) {
+                                hoveredProvider = status.provider
+                                selectedProvider = status.provider
+                            }
+                            withAnimation(.spring(response: 0.18, dampingFraction: 0.88)) {
+                                hoveredYPosition = CGFloat(index) * 88 + 86
+                            }
                         }
                     }
                     .onTapGesture {
