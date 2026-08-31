@@ -566,7 +566,8 @@ struct NotchView: View {
         .overlay(alignment: .bottom) {
             if isExpanded {
                 SettingsCornerButton(isHovered: interaction.isSettingsHovered)
-                    .frame(width: 72, height: 48)
+                    .frame(width: 72, height: 52)
+                    .offset(y: -4)
             }
         }
     }
@@ -574,22 +575,30 @@ struct NotchView: View {
 
 // MARK: - Bottom Corner Settings Trigger
 
-/// Crisp white gear icon nestled directly inside the bottom flare of the black notch rail,
-/// aligned on the same central axis as the provider column.
+/// Solid pitch-black circular button with a bold white gear icon perfectly centered
+/// on the provider column in the bottom flare of the notch.
 struct SettingsCornerButton: View {
     let isHovered: Bool
 
     var body: some View {
         Button(action: openSettings) {
             ZStack {
-                // Stark white settings gear icon
+                // Solid pitch-black circular background
+                Circle()
+                    .fill(Color.black)
+                    .frame(width: 42, height: 42)
+                    .overlay(
+                        Circle()
+                            .stroke(Color.white.opacity(isHovered ? 0.35 : 0.2), lineWidth: 1)
+                    )
+                    .shadow(color: Color.black.opacity(0.65), radius: 6, x: -1, y: 3)
+
+                // Pure stark white settings gear icon
                 Image(systemName: "gearshape.fill")
-                    .font(.system(size: 19, weight: .medium))
+                    .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(.white)
                     .rotationEffect(.degrees(isHovered ? 0 : -45))
             }
-            .frame(width: 38, height: 38)
-            .contentShape(Circle())
             .scaleEffect(isHovered ? 1.0 : 0.6)
             .opacity(isHovered ? 1.0 : 0.0)
             .animation(.spring(response: 0.22, dampingFraction: 0.8), value: isHovered)
