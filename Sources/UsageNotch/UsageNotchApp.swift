@@ -240,6 +240,9 @@ struct SettingsView: View {
     @AppStorage(AppSettings.notchPositionKey) private var positionRaw = NotchPosition.right.rawValue
     @AppStorage(AppSettings.themeColorKey) private var themeRaw = ThemeColor.red.rawValue
     @AppStorage(AppSettings.windowStyleKey) private var windowStyleRaw = WindowStyle.liquidGlass.rawValue
+    @AppStorage(AppSettings.animationDurationKey) private var animationDuration = 0.32
+    @AppStorage(AppSettings.overlayDisplayModeKey) private var displayModeRaw = OverlayDisplayMode.hover.rawValue
+    @AppStorage(AppSettings.providerIconShapeKey) private var iconShapeRaw = ProviderIconShape.circle.rawValue
     @State private var providerRevision = 0
     @State private var restartRequired = false
 
@@ -289,25 +292,93 @@ struct SettingsView: View {
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
+                }
 
-                    Divider().opacity(0.25).padding(.horizontal, 12)
-
+                SettingsSection(title: "Position") {
                     HStack {
-                        Text("Notch position")
+                        Text("Overlay position")
                             .font(.system(size: 13))
                         Spacer()
-                        ElevatedMenuPicker(
+                        ElevatedSegmentedPicker(
                             selection: Binding(
                                 get: { NotchPosition(rawValue: positionRaw) ?? .right },
-                                set: { positionRaw = $0.rawValue }
+                                set: {
+                                    positionRaw = $0.rawValue
+                                    postSettingsChange()
+                                }
                             ),
                             options: NotchPosition.allCases,
                             titleFor: { $0.title },
-                            onChange: { postSettingsChange() }
+                            tintColor: currentTheme == .rainbow ? Color(red: 0.08, green: 0.48, blue: 1) : currentTheme.color
                         )
                     }
                     .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 7)
+                }
+
+                SettingsSection(title: "Display") {
+                    HStack {
+                        Text("Overlay")
+                            .font(.system(size: 13))
+                        Spacer()
+                        ElevatedSegmentedPicker(
+                            selection: Binding(
+                                get: { OverlayDisplayMode(rawValue: displayModeRaw) ?? .hover },
+                                set: {
+                                    displayModeRaw = $0.rawValue
+                                    postSettingsChange()
+                                }
+                            ),
+                            options: OverlayDisplayMode.allCases,
+                            titleFor: { $0.title },
+                            tintColor: currentTheme == .rainbow ? Color(red: 0.08, green: 0.48, blue: 1) : currentTheme.color
+                        )
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                }
+
+                SettingsSection(title: "Icon shape") {
+                    HStack(spacing: 8) {
+                        ForEach(ProviderIconShape.allCases) { shape in
+                            ShapePickerOption(
+                                shape: shape,
+                                isSelected: iconShapeRaw == shape.rawValue,
+                                themeColor: currentTheme == .rainbow ? Color(red: 0.08, green: 0.48, blue: 1) : currentTheme.color
+                            ) {
+                                withAnimation(.spring(response: 0.22, dampingFraction: 0.82)) {
+                                    iconShapeRaw = shape.rawValue
+                                    postSettingsChange()
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                }
+
+                SettingsSection(title: "Animation") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Transition speed")
+                                .font(.system(size: 13))
+                            Spacer()
+                            Text(String(format: "%.2fs", animationDuration))
+                                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Slider(value: $animationDuration, in: 0.12...0.80)
+                            .tint(currentTheme == .rainbow ? Color.white.opacity(0.85) : currentTheme.color)
+                            .onChange(of: animationDuration) {
+                                NSHapticFeedbackManager.defaultPerformer.perform(
+                                    .alignment,
+                                    performanceTime: .now
+                                )
+                            }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
                 }
 
                 SettingsSection(title: "Window") {
@@ -395,6 +466,9 @@ struct SettingsView: View {
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
+                    .onChange(of: themeRaw) {
+                        postSettingsChange()
+                    }
                 }
 
                 SettingsSection(title: "Providers") {
@@ -583,6 +657,84 @@ private struct ElevatedMenuPicker<T: Hashable & Identifiable>: View {
     }
 }
 
+private struct ElevatedSegmentedPicker<T: Hashable & Identifiable>: View {
+    let selection: Binding<T>
+    let options: [T]
+    let titleFor: (T) -> String
+    var tintColor: Color = .white
+    var onChange: (() -> Void)? = nil
+    @Namespace private var segmentNamespace
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(options) { item in
+                let isSelected = selection.wrappedValue == item
+                Button {
+                    withAnimation(.spring(response: 0.22, dampingFraction: 0.82)) {
+                        selection.wrappedValue = item
+                        onChange?()
+                    }
+                } label: {
+                    Text(titleFor(item))
+                        .font(.system(size: 12, weight: isSelected ? .medium : .regular))
+                        .foregroundStyle(isSelected ? Color.white : Color.primary.opacity(0.65))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4.5)
+                        .background {
+                            if isSelected {
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [
+                                                tintColor.opacity(0.35),
+                                                tintColor.opacity(0.18)
+                                            ],
+                                            startPoint: .top,
+                                            endPoint: .bottom
+                                        )
+                                    )
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                            .fill(Color.white.opacity(0.08))
+                                    )
+                                    .overlay {
+                                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                            .strokeBorder(
+                                                LinearGradient(
+                                                    colors: [Color.white.opacity(0.35), Color.white.opacity(0.10)],
+                                                    startPoint: .top,
+                                                    endPoint: .bottom
+                                                ),
+                                                lineWidth: 0.75
+                                            )
+                                    }
+                                    .shadow(color: Color.black.opacity(0.25), radius: 3, x: 0, y: 1)
+                                    .matchedGeometryEffect(id: "selectedSegment", in: segmentNamespace)
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(2.5)
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.black.opacity(0.25))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.14), Color.white.opacity(0.04)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 0.75
+                )
+        }
+    }
+}
+
 private struct ThemeSwatch: View {
     let theme: ThemeColor
     @Binding var selection: String
@@ -680,6 +832,118 @@ private struct ThemeSwatch: View {
             return Color.black.opacity(0.35)
         } else {
             return theme.color.opacity(isSelected ? 0.38 : 0.18)
+        }
+    }
+}
+
+private struct ShapePickerOption: View {
+    let shape: ProviderIconShape
+    let isSelected: Bool
+    let themeColor: Color
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                // Live Provider Item preview (Codex with shape gauge ring)
+                ZStack {
+                    // Shape Track
+                    trackView
+
+                    // Quota gauge trim (75% indicator)
+                    gaugeTrimView
+
+                    // Codex provider logo in center
+                    ProviderLogo(provider: .codex, size: 14)
+                        .foregroundStyle(isSelected ? Color.white : Color.white.opacity(0.85))
+                }
+                .frame(width: 34, height: 34)
+
+                Text(shape.title)
+                    .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? Color.white : Color.primary.opacity(0.70))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    themeColor.opacity(0.28),
+                                    themeColor.opacity(0.12)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .strokeBorder(
+                                    LinearGradient(
+                                        colors: [Color.white.opacity(0.35), Color.white.opacity(0.10)],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    ),
+                                    lineWidth: 0.8
+                                )
+                        }
+                        .shadow(color: Color.black.opacity(0.25), radius: 4, y: 1.5)
+                } else {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.white.opacity(isHovered ? 0.08 : 0.04))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .strokeBorder(Color.white.opacity(isHovered ? 0.15 : 0.06), lineWidth: 0.75)
+                        }
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+    }
+
+    @ViewBuilder
+    private var trackView: some View {
+        switch shape {
+        case .circle:
+            Circle().stroke(Color.white.opacity(0.15), lineWidth: 3.8)
+        case .squircle:
+            RoundedRectangle(cornerRadius: 9.5, style: .continuous).stroke(Color.white.opacity(0.15), lineWidth: 3.8)
+        case .rounded:
+            RoundedRectangle(cornerRadius: 6, style: .continuous).stroke(Color.white.opacity(0.15), lineWidth: 3.8)
+        case .square:
+            RoundedRectangle(cornerRadius: 2.5, style: .continuous).stroke(Color.white.opacity(0.15), lineWidth: 3.8)
+        }
+    }
+
+    @ViewBuilder
+    private var gaugeTrimView: some View {
+        let accent = isSelected ? themeColor : Color(red: 0.18, green: 0.85, blue: 0.45)
+        let strokeStyle = StrokeStyle(lineWidth: 3.8, lineCap: .round)
+        switch shape {
+        case .circle:
+            Circle()
+                .trim(from: 0, to: 0.75)
+                .stroke(accent, style: strokeStyle)
+                .rotationEffect(.degrees(-90))
+        case .squircle:
+            RoundedRectangle(cornerRadius: 9.5, style: .continuous)
+                .trim(from: 0, to: 0.75)
+                .stroke(accent, style: strokeStyle)
+                .rotationEffect(.degrees(-90))
+        case .rounded:
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .trim(from: 0, to: 0.75)
+                .stroke(accent, style: strokeStyle)
+                .rotationEffect(.degrees(-90))
+        case .square:
+            RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                .trim(from: 0, to: 0.75)
+                .stroke(accent, style: strokeStyle)
+                .rotationEffect(.degrees(-90))
         }
     }
 }

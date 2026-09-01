@@ -86,19 +86,51 @@ struct UsageWindow: Codable, Sendable, Equatable {
 }
 
 enum NotchPosition: String, CaseIterable, Identifiable, Sendable {
+    case leftCenter
     case right
     case bottomCenter
-    case leftCenter
-    case notch
 
     var id: Self { self }
 
     var title: String {
         switch self {
+        case .leftCenter: "Left"
         case .right: "Right"
-        case .bottomCenter: "Bottom center"
-        case .leftCenter: "Left centered"
-        case .notch: "Notch"
+        case .bottomCenter: "Bottom"
+        }
+    }
+}
+
+enum OverlayDisplayMode: String, CaseIterable, Identifiable, Sendable {
+    case alwaysExpanded
+    case hover
+    case hidden
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .alwaysExpanded: "Always show"
+        case .hover: "Show on hover"
+        case .hidden: "Hide"
+        }
+    }
+}
+
+enum ProviderIconShape: String, CaseIterable, Identifiable, Sendable {
+    case circle
+    case squircle
+    case rounded
+    case square
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .circle: "Circle"
+        case .squircle: "Squircle"
+        case .rounded: "Rounded"
+        case .square: "Square"
         }
     }
 }
@@ -160,13 +192,14 @@ enum ProviderID: String, Codable, CaseIterable, Identifiable, Sendable {
 }
 
 enum ThemeColor: String, CaseIterable, Identifiable, Sendable {
-    case rainbow, blue, purple, pink, red, orange, yellow, green, gray
+    case rainbow, skyBlue, blue, purple, pink, red, orange, yellow, green, gray
 
     var id: Self { self }
 
     var title: String {
         switch self {
         case .rainbow: "Rainbow"
+        case .skyBlue: "Sky blue"
         case .blue: "Blue"
         case .purple: "Purple"
         case .pink: "Pink"
@@ -181,6 +214,7 @@ enum ThemeColor: String, CaseIterable, Identifiable, Sendable {
     var color: Color {
         switch self {
         case .rainbow: .clear
+        case .skyBlue: Color(red: 0.28, green: 0.72, blue: 0.98)
         case .blue: Color(red: 0.08, green: 0.48, blue: 1)
         case .purple: Color(red: 0.58, green: 0.25, blue: 0.68)
         case .pink: Color(red: 0.95, green: 0.22, blue: 0.56)
@@ -202,6 +236,7 @@ enum ThemeColor: String, CaseIterable, Identifiable, Sendable {
     var solidColor: Color {
         switch self {
         case .rainbow: Color.black
+        case .skyBlue: Color(red: 0.04, green: 0.15, blue: 0.22)
         case .blue: Color(red: 0.05, green: 0.12, blue: 0.22)
         case .purple: Color(red: 0.15, green: 0.07, blue: 0.19)
         case .pink: Color(red: 0.20, green: 0.05, blue: 0.12)
@@ -231,6 +266,9 @@ enum WindowStyle: String, CaseIterable, Identifiable, Sendable {
 
 enum AppSettings {
     static let notchPositionKey = "UsageNotch.notchPosition"
+    static let animationDurationKey = "UsageNotch.animationDuration"
+    static let overlayDisplayModeKey = "UsageNotch.overlayDisplayMode"
+    static let providerIconShapeKey = "UsageNotch.providerIconShape"
     static let themeColorKey = "UsageNotch.themeColor"
     static let windowStyleKey = "UsageNotch.windowStyle"
     @MainActor static var activeWindowStyle: WindowStyle = .liquidGlass
@@ -248,6 +286,19 @@ enum AppSettings {
 
     static var currentTheme: ThemeColor {
         ThemeColor(rawValue: UserDefaults.standard.string(forKey: themeColorKey) ?? "") ?? .red
+    }
+
+    static var overlayDisplayMode: OverlayDisplayMode {
+        OverlayDisplayMode(rawValue: UserDefaults.standard.string(forKey: overlayDisplayModeKey) ?? "") ?? .hover
+    }
+
+    static var providerIconShape: ProviderIconShape {
+        ProviderIconShape(rawValue: UserDefaults.standard.string(forKey: providerIconShapeKey) ?? "") ?? .circle
+    }
+
+    static var animationDuration: Double {
+        let value = UserDefaults.standard.double(forKey: animationDurationKey)
+        return value == 0 ? 0.32 : value
     }
 
     static func isProviderEnabled(_ provider: ProviderID) -> Bool {

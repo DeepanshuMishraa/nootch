@@ -43,23 +43,50 @@ struct GlassMaterialView: NSViewRepresentable {
 
 struct ThemedGlass<S: Shape>: View {
     let shape: S
+    @AppStorage(AppSettings.themeColorKey) private var themeRaw = ThemeColor.red.rawValue
+
+    private var currentTheme: ThemeColor {
+        ThemeColor(rawValue: themeRaw) ?? .red
+    }
 
     var body: some View {
         if #available(macOS 26.0, *), AppSettings.activeWindowStyle == .liquidGlass {
             shape
                 .fill(Color.clear)
                 .glassEffect(
-                    .regular.tint(AppSettings.currentTheme.color.opacity(0.14)),
+                    .regular.tint(currentTheme.color.opacity(0.14)),
                     in: shape
                 )
+                .overlay(glassReflection)
+                .overlay(shape.stroke(Color.white.opacity(0.22), lineWidth: 0.8))
         } else if AppSettings.activeWindowStyle == .solid {
-            shape.fill(AppSettings.currentTheme.solidColor)
+            shape.fill(currentTheme.solidColor)
         } else {
             shape
                 .fill(Color.clear)
-                .background(GlassMaterialView(tint: AppSettings.currentTheme))
+                .background(GlassMaterialView(tint: currentTheme))
                 .clipShape(shape)
+                .overlay(glassReflection)
+                .overlay(shape.stroke(Color.white.opacity(0.20), lineWidth: 0.8))
         }
+    }
+
+    private var glassReflection: some View {
+        shape
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.18),
+                        Color.white.opacity(0.06),
+                        Color.clear,
+                        Color.white.opacity(0.04)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .blendMode(.screen)
+            .allowsHitTesting(false)
     }
 }
 
@@ -169,12 +196,11 @@ struct OrientedRailShape: Shape {
     }
 }
 
-/// The right-edge silhouette rotated onto a horizontal screen edge.
-struct HorizontalEdgeNotchShape: Shape {
-    var flareWidth: CGFloat
-    var flareHeight: CGFloat
-    var cornerRadius: CGFloat
-    var attachedToTop: Bool
+/// Smooth Apple-style Top Notch shape with true concave ear fillets and rounded bottom corners.
+struct TopEdgeNotchShape: Shape {
+    var flareWidth: CGFloat = 16
+    var flareHeight: CGFloat = 16
+    var cornerRadius: CGFloat = 20
 
     var animatableData: AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>> {
         get { AnimatablePair(flareWidth, AnimatablePair(flareHeight, cornerRadius)) }
@@ -186,23 +212,126 @@ struct HorizontalEdgeNotchShape: Shape {
     }
 
     func path(in rect: CGRect) -> Path {
-        let sourceRect = CGRect(x: 0, y: 0, width: rect.height, height: rect.width)
-        let path = RightEdgeNotchShape(
+        var path = Path()
+        let w = rect.width
+        let h = rect.height
+        let fw = min(flareWidth, w * 0.25)
+        let fh = min(flareHeight, h * 0.4)
+        let cr = min(cornerRadius, max(2, min((w - 2 * fw) * 0.5, h - fh)))
+        let k: CGFloat = 0.5522847
+
+        // 1. Start at top-left screen boundary
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+
+        // 2. Top-left concave ear fillet from (minX, minY) to (minX + fw, minY + fh)
+        if fw > 0 && fh > 0 {
+            path.addCurve(
+                to: CGPoint(x: rect.minX + fw, y: rect.minY + fh),
+                control1: CGPoint(x: rect.minX + fw * (1 - k), y: rect.minY),
+                control2: CGPoint(x: rect.minX + fw, y: rect.minY + fh * k)
+            )
+        } else {
+            path.addLine(to: CGPoint(x: rect.minX + fw, y: rect.minY + fh))
+        }
+
+        // 3. Left straight vertical side
+        path.addLine(to: CGPoint(x: rect.minX + fw, y: rect.maxY - cr))
+
+        // 4. Bottom-left convex rounded corner
+        path.addCurve(
+            to: CGPoint(x: rect.minX + fw + cr, y: rect.maxY),
+            control1: CGPoint(x: rect.minX + fw, y: rect.maxY - cr * (1 - k)),
+            control2: CGPoint(x: rect.minX + fw + cr * (1 - k), y: rect.maxY)
+        )
+
+        // 5. Bottom horizontal straight edge
+        path.addLine(to: CGPoint(x: rect.maxX - fw - cr, y: rect.maxY))
+
+        // 6. Bottom-right convex rounded corner
+        path.addCurve(
+            to: CGPoint(x: rect.maxX - fw, y: rect.maxY - cr),
+            control1: CGPoint(x: rect.maxX - fw - cr * (1 - k), y: rect.maxY),
+            control2: CGPoint(x: rect.maxX - fw, y: rect.maxY - cr * (1 - k))
+        )
+
+        // 7. Right straight vertical side
+        path.addLine(to: CGPoint(x: rect.maxX - fw, y: rect.minY + fh))
+
+        // 8. Top-right concave ear fillet from (maxX - fw, minY + fh) to (maxX, minY)
+        if fw > 0 && fh > 0 {
+            path.addCurve(
+                to: CGPoint(x: rect.maxX, y: rect.minY),
+                control1: CGPoint(x: rect.maxX - fw, y: rect.minY + fh * k),
+                control2: CGPoint(x: rect.maxX - fw * (1 - k), y: rect.minY)
+            )
+        } else {
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        }
+
+        // 9. Close along top boundary
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// Bottom-edge notch: the top is rounded while the attached bottom edge
+/// uses the same concave ear treatment as the hardware notch.
+struct BottomIslandCapsule: Shape {
+    var flareWidth: CGFloat = 24
+    var flareHeight: CGFloat = 20
+    var cornerRadius: CGFloat = 24
+
+    var animatableData: AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>> {
+        get { AnimatablePair(flareWidth, AnimatablePair(flareHeight, cornerRadius)) }
+        set {
+            flareWidth = newValue.first
+            flareHeight = newValue.second.first
+            cornerRadius = newValue.second.second
+        }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let path = TopEdgeNotchShape(
             flareWidth: flareWidth,
             flareHeight: flareHeight,
             cornerRadius: cornerRadius
-        ).path(in: sourceRect)
-
-        if attachedToTop {
-            return path.applying(CGAffineTransform(
-                a: 0, b: -1, c: 1, d: 0,
-                tx: rect.minX, ty: rect.maxY
-            ))
-        }
+        ).path(in: rect)
         return path.applying(CGAffineTransform(
-            a: 0, b: 1, c: 1, d: 0,
-            tx: rect.minX, ty: rect.minY
+            a: 1, b: 0, c: 0, d: -1,
+            tx: 0, ty: rect.minY + rect.maxY
         ))
+    }
+}
+
+/// Geometry and metrics layout for the dynamic Bottom Notch bar.
+enum HorizontalBarLayout {
+    static let itemWidth: CGFloat = 68
+    static let itemSpacing: CGFloat = 10
+    static let dividerWidth: CGFloat = 1
+    static let dividerSpacing: CGFloat = 8
+    static let settingsWidth: CGFloat = 65
+    static let sidePadding: CGFloat = 34
+    static let barHeight: CGFloat = 74
+    static let collapsedWidth: CGFloat = 64
+    static let collapsedHeight: CGFloat = 20
+
+    static func expandedWidth(for count: Int) -> CGFloat {
+        let actualCount = max(1, count)
+        let itemsWidth = CGFloat(actualCount) * itemWidth + CGFloat(max(0, actualCount - 1)) * itemSpacing
+        // The settings button is positioned in the curved end-cap, outside
+        // the provider row, so it must not reserve empty row space.
+        return itemsWidth + (sidePadding * 2)
+    }
+
+    static func itemCenterX(for index: Int, totalCount: Int) -> CGFloat {
+        let totalW = expandedWidth(for: totalCount)
+        let startX = -totalW / 2 + sidePadding
+        return startX + CGFloat(index) * (itemWidth + itemSpacing) + (itemWidth / 2)
+    }
+
+    static func settingsCenterX(for totalCount: Int) -> CGFloat {
+        let totalW = expandedWidth(for: totalCount)
+        return totalW / 2 + 4
     }
 }
 
@@ -372,7 +501,7 @@ final class NotchPanel: NSPanel {
         let panelWidth: CGFloat = 640
         let panelHeight: CGFloat = 480
         let position = NotchPosition(rawValue: UserDefaults.standard.string(forKey: AppSettings.notchPositionKey) ?? "") ?? .right
-        let frame = position == .notch ? screen.frame : screen.visibleFrame
+        let frame = screen.visibleFrame
 
         // The rail is the right-most 72pt of the canonical panel. Anchor that
         // rail to the selected screen edge rather than centering the whole panel.
@@ -388,8 +517,6 @@ final class NotchPanel: NSPanel {
                 y: max(frame.minY + 20, frame.maxY - panelHeight - 12))
         case .bottomCenter:
             origin = CGPoint(x: frame.midX - panelWidth / 2, y: frame.minY)
-        case .notch:
-            origin = CGPoint(x: frame.midX - panelWidth / 2, y: frame.maxY - panelHeight)
         }
 
         setFrame(NSRect(origin: origin, size: NSSize(width: panelWidth, height: panelHeight)), display: true)
@@ -408,6 +535,7 @@ final class NotchInteractionState {
     var collapseToken = 0
     var panelFrame: NSRect = .zero
     var position: NotchPosition = NotchPosition(rawValue: UserDefaults.standard.string(forKey: AppSettings.notchPositionKey) ?? "") ?? .right
+    var displayMode: OverlayDisplayMode = AppSettings.overlayDisplayMode
 }
 
 @MainActor
@@ -423,6 +551,7 @@ final class NotchPanelController {
     func settingsDidChange() {
         panel.place()
         interaction.position = NotchPosition(rawValue: UserDefaults.standard.string(forKey: AppSettings.notchPositionKey) ?? "") ?? .right
+        interaction.displayMode = AppSettings.overlayDisplayMode
         interaction.panelFrame = panel.frame
         interaction.collapseToken &+= 1
     }
@@ -430,6 +559,7 @@ final class NotchPanelController {
     func show(store: UsageStore) {
         panel.place()
         interaction.position = NotchPosition(rawValue: UserDefaults.standard.string(forKey: AppSettings.notchPositionKey) ?? "") ?? .right
+        interaction.displayMode = AppSettings.overlayDisplayMode
         interaction.panelFrame = panel.frame
 
         let hostedView = TrackingHostingView(rootView: NotchView(
@@ -523,10 +653,9 @@ final class NotchPanelController {
             withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
                 interaction.isHovered = true
             }
-            scheduleAutoCollapse()
         }
 
-        if interaction.position == .bottomCenter || interaction.position == .notch {
+        if interaction.position == .bottomCenter {
             updateHorizontalHover(at: location, in: frame)
             return
         }
@@ -589,19 +718,21 @@ final class NotchPanelController {
 
     private func updateHorizontalHover(at location: CGPoint, in frame: NSRect) {
         let count = interaction.providerCount
-        let itemWidth: CGFloat = 72
-        let spacing: CGFloat = 12
-        let contentWidth = CGFloat(count) * itemWidth + CGFloat(max(0, count - 1)) * spacing
-        let railWidth = min(520, max(220, contentWidth + 96))
-        let isTop = interaction.position == .notch
-        let isWithinRailHeight = isTop
-            ? location.y >= frame.maxY - 200
-            : location.y <= frame.minY + 200
-        let settingsInset: CGFloat = interaction.isSettingsHovered ? 75 : 48
-        let settingsStartX = frame.midX + railWidth / 2 - settingsInset
-        let isOverSettings = isWithinRailHeight &&
-            location.x >= settingsStartX &&
-            location.x <= frame.midX + railWidth / 2 + 20
+        let barHeight = HorizontalBarLayout.barHeight
+        let isWithinBarY = location.y >= frame.minY && location.y <= frame.minY + barHeight + 16
+        let settingsCenterX = frame.midX + HorizontalBarLayout.settingsCenterX(for: count)
+        let isWithinSettingsRegion = location.y >= frame.minY && location.y <= frame.minY + 165
+            && abs(location.x - settingsCenterX) <= 98
+        let isOverSettings = isWithinSettingsRegion
+
+        // If the mouse is within the detail area, maintain the current item.
+        let isWithinPopoverY = location.y > frame.minY + barHeight + 16 && location.y <= frame.minY + 340
+
+        if isWithinPopoverY && interaction.hoveredIndex != nil && interaction.isDetailVisible {
+            return
+        }
+
+        let relX = location.x - frame.midX
 
         if isOverSettings {
             if !interaction.isSettingsHovered {
@@ -620,41 +751,33 @@ final class NotchPanelController {
             }
         }
 
-        guard count > 0 else { return }
-        let firstCenterX = frame.midX - contentWidth / 2 + itemWidth / 2
-        let step = itemWidth + spacing
-        let nearest = Int(((location.x - firstCenterX) / step).rounded())
-        let nextIndex = nearest >= 0 && nearest < count &&
-            abs(location.x - (firstCenterX + CGFloat(nearest) * step)) <= itemWidth / 2
-            ? nearest
-            : nil
+        guard count > 0, isWithinBarY else { return }
 
-        if interaction.hoveredIndex != nextIndex {
+        var foundIndex: Int? = nil
+        for i in 0..<count {
+            let itemCenterX = HorizontalBarLayout.itemCenterX(for: i, totalCount: count)
+            if abs(relX - itemCenterX) <= (HorizontalBarLayout.itemWidth / 2 + 3) {
+                foundIndex = i
+                break
+            }
+        }
+
+        if interaction.hoveredIndex != foundIndex {
             withAnimation(.spring(response: 0.16, dampingFraction: 0.90)) {
-                interaction.hoveredIndex = nextIndex
-                interaction.isDetailVisible = nextIndex != nil
+                interaction.hoveredIndex = foundIndex
+                interaction.isDetailVisible = foundIndex != nil
             }
         }
     }
 
     private var interactionRegion: NSRect {
         let frame = panel.frame
-        if interaction.position == .bottomCenter || interaction.position == .notch {
-            let isTop = interaction.position == .notch
-            let itemWidth: CGFloat = 72
-            let spacing: CGFloat = 12
-            let count = interaction.providerCount
-            let contentWidth = CGFloat(count) * itemWidth + CGFloat(max(0, count - 1)) * spacing
-            let collapsedWidth: CGFloat = isTop ? 220 : 80
-            let expandedWidth = min(520, max(220, contentWidth + 96))
-            let isOpen = interaction.isHovered || interaction.pinnedOpen
-            let width = isOpen ? expandedWidth + 160 : collapsedWidth
-            let height: CGFloat = isOpen ? 360 : (isTop ? 48 : 20)
+        if interaction.position == .bottomCenter {
             return NSRect(
-                x: frame.midX - width / 2,
-                y: isTop ? frame.maxY - height : frame.minY,
-                width: width,
-                height: height
+                x: frame.midX - 763 / 2,
+                y: frame.minY,
+                width: 763,
+                height: 199
             )
         }
 
@@ -676,21 +799,6 @@ final class NotchPanelController {
         return triggerRegion.union(detailRegion)
     }
 
-    private func scheduleAutoCollapse() {
-        autoCollapseTask?.cancel()
-        autoCollapseTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(3))
-            guard let self, !self.interaction.pinnedOpen else { return }
-            withAnimation(.spring(response: 0.24, dampingFraction: 0.86)) {
-                self.interaction.isHovered = false
-                self.interaction.isDetailVisible = false
-                self.interaction.isSettingsHovered = false
-                self.interaction.hoveredIndex = nil
-                self.interaction.collapseToken &+= 1
-            }
-        }
-    }
-
     private func collapseFromOutsideClick() {
         autoCollapseTask?.cancel()
         withAnimation(.spring(response: 0.24, dampingFraction: 0.86)) {
@@ -710,6 +818,11 @@ final class NotchPanelController {
 struct NotchView: View {
     @Bindable var store: UsageStore
     @Bindable var interaction: NotchInteractionState
+    @AppStorage(AppSettings.themeColorKey) private var themeRaw = ThemeColor.red.rawValue
+
+    private var currentTheme: ThemeColor {
+        ThemeColor(rawValue: themeRaw) ?? .red
+    }
 
     private var activeStatuses: [ProviderStatus] {
         let detected = store.detectedStatuses
@@ -731,8 +844,19 @@ struct NotchView: View {
         return activeStatuses[idx]
     }
 
+    private var shouldShowDetailCard: Bool {
+        interaction.isDetailVisible || interaction.pinnedOpen
+    }
+
     private var isExpanded: Bool {
-        interaction.isHovered || interaction.pinnedOpen || activeIndex != nil || interaction.isSettingsHovered
+        switch interaction.displayMode {
+        case .alwaysExpanded:
+            true
+        case .hover:
+            interaction.isHovered || interaction.pinnedOpen || activeIndex != nil || interaction.isSettingsHovered
+        case .hidden:
+            false
+        }
     }
 
     private var cardOffsetY: CGFloat {
@@ -753,7 +877,6 @@ struct NotchView: View {
     }
 
     var body: some View {
-        let _ = interaction.collapseToken
         ZStack(alignment: .trailing) {
             // Transparent background that catches clicks outside to dismiss immediately
             Color.clear
@@ -768,20 +891,24 @@ struct NotchView: View {
                     }
                 }
 
-            if interaction.position == .bottomCenter || interaction.position == .notch {
+            if interaction.position == .bottomCenter {
                 horizontalLayout
             } else {
                 verticalLayout
             }
         }
         .padding(.trailing, 0)
+        .opacity(interaction.displayMode == .hidden ? 0 : 1)
+        .allowsHitTesting(interaction.displayMode != .hidden)
         .ignoresSafeArea()
         .onChange(of: activeStatuses.count, initial: true) {
             interaction.providerCount = activeStatuses.count
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-        .id(interaction.collapseToken)
-        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isExpanded)
+        .animation(
+            .spring(response: AppSettings.animationDuration, dampingFraction: 0.88, blendDuration: 0.12),
+            value: isExpanded
+        )
     }
 
     private var verticalLayout: some View {
@@ -809,116 +936,135 @@ struct NotchView: View {
         .frame(maxHeight: .infinity, alignment: .top)
     }
 
-    private var horizontalLayout: some View {
-        VStack(spacing: 12) {
-            if interaction.position == .notch {
-                horizontalNotchRail
-            }
+    private var horizontalLayoutMetrics: (cardOffsetX: CGFloat, pointerX: CGFloat) {
+        guard let idx = activeIndex else { return (0, 156) }
+        let count = activeStatuses.count
+        let targetItemCenterX = HorizontalBarLayout.itemCenterX(for: idx, totalCount: count)
 
-            if interaction.position == .bottomCenter {
-                Spacer(minLength: 0)
-            }
+        let cardWidth: CGFloat = 312
+        let clampedCardOffsetX = min(max(targetItemCenterX, -140), 140)
+        let relativePointerX = (targetItemCenterX - clampedCardOffsetX) + (cardWidth / 2)
+        let clampedPointerX = min(max(relativePointerX, 28), cardWidth - 28)
+        return (clampedCardOffsetX, clampedPointerX)
+    }
+
+    private var horizontalLayout: some View {
+        let metrics = horizontalLayoutMetrics
+        return VStack(spacing: 8) {
+            Spacer(minLength: 0)
 
             if let status = activeStatus, (interaction.isHovered || interaction.pinnedOpen) {
                 DetailPopoverCard(
                     status: status,
                     pointerY: relativePointerY,
-                    verticalPointerOnTop: interaction.position == .notch
+                    verticalPointerOnTop: false,
+                    pointerX: metrics.pointerX
                 )
-                .transition(.scale(scale: 0.96).combined(with: .opacity))
+                .offset(x: metrics.cardOffsetX)
+                .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .bottom)))
             }
 
-            if interaction.position == .notch {
-                Spacer(minLength: 0)
-            } else {
-                horizontalNotchRail
-            }
+            bottomIslandBar
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // Adjust these independently to position each horizontal settings button.
-    // Positive X moves right; positive Y moves down.
-    private var notchSettingsOffset: CGSize {
-        CGSize(width: 38, height: -40)
-    }
+    // MARK: - Bottom Floating Island (.bottomCenter)
 
-    private var bottomSettingsOffset: CGSize {
-        CGSize(width: 40, height: 38)
-    }
-
-    // Adjust these independently to size each horizontal settings button.
-    private var notchSettingsScale: CGFloat {
-        0.9
-    }
-
-    private var bottomSettingsScale: CGFloat {
-        0.9
-    }
-
-    private var horizontalNotchRail: some View {
+    private var bottomIslandBar: some View {
         let items = activeStatuses
-        let attachedToTop = interaction.position == .notch
-        let settingsOffset = attachedToTop ? notchSettingsOffset : bottomSettingsOffset
-        let settingsScale = attachedToTop ? notchSettingsScale : bottomSettingsScale
-        let itemWidth: CGFloat = 72
-        let itemSpacing: CGFloat = 12
-        let expandedWidth = min(
-            520,
-            max(220, CGFloat(items.count) * itemWidth + CGFloat(max(0, items.count - 1)) * itemSpacing + 96)
-        )
-        let collapsedWidth: CGFloat = attachedToTop ? 220 : 48
-        let width = isExpanded ? expandedWidth : collapsedWidth
-        let height: CGFloat = isExpanded ? 112 : (attachedToTop ? 40 : 6)
-        let shape = HorizontalEdgeNotchShape(
-            flareWidth: isExpanded ? 24 : 0,
-            flareHeight: isExpanded ? 28 : 0,
-            cornerRadius: isExpanded ? 24 : 4,
-            attachedToTop: attachedToTop
+        let count = items.count
+        let width = isExpanded ? HorizontalBarLayout.expandedWidth(for: count) : HorizontalBarLayout.collapsedWidth
+        let height = isExpanded ? HorizontalBarLayout.barHeight : HorizontalBarLayout.collapsedHeight
+
+        let shape = BottomIslandCapsule(
+            flareWidth: isExpanded ? 20 : 0,
+            flareHeight: isExpanded ? 16 : 0,
+            cornerRadius: isExpanded ? 20 : 8
         )
 
-        return HStack(spacing: itemSpacing) {
-            ForEach(Array(items.enumerated()), id: \.element.id) { index, status in
-                ProviderRailItem(status: status, isHovered: interaction.hoveredIndex == index)
-                    .frame(width: 72, height: 76)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        withAnimation(.spring(response: 0.18, dampingFraction: 0.88)) {
-                            interaction.pinnedOpen.toggle()
-                        }
+        return ZStack {
+            if isExpanded {
+                HStack(spacing: HorizontalBarLayout.itemSpacing) {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, status in
+                        ProviderRailItem(status: status, isHovered: interaction.hoveredIndex == index)
+                            .frame(width: HorizontalBarLayout.itemWidth, height: 58)
+                            .contentShape(Rectangle())
+                            .onHover { hovering in
+                                guard hovering else { return }
+                                interaction.hoveredIndex = index
+                                interaction.isDetailVisible = true
+                                interaction.isHovered = true
+                            }
+                            .onTapGesture {
+                                withAnimation(.spring(response: 0.18, dampingFraction: 0.88)) {
+                                    interaction.pinnedOpen.toggle()
+                                }
+                            }
                     }
-            }
-        }
-        .opacity(isExpanded ? 1 : 0)
-        .scaleEffect(isExpanded ? 1 : 0.9, anchor: attachedToTop ? .top : .bottom)
-        .padding(.horizontal, 48)
-        .frame(width: width, height: height)
-        .background {
-            if attachedToTop && !isExpanded {
-                Color.clear
+
+                }
+                .padding(.horizontal, HorizontalBarLayout.sidePadding)
+                .padding(.top, 8)
+                .transition(
+                    .asymmetric(
+                        insertion: .opacity
+                            .combined(with: .scale(scale: 0.94, anchor: .bottom))
+                            .animation(.spring(response: AppSettings.animationDuration, dampingFraction: 0.86)),
+                        removal: .opacity
+                            .combined(with: .scale(scale: 0.94, anchor: .bottom))
+                            .animation(.spring(response: AppSettings.animationDuration, dampingFraction: 0.86))
+                    )
+                )
             } else {
-                ThemedGlass(shape: shape)
-                    .overlay(AppSettings.currentTheme.color.opacity(0.14).clipShape(shape))
+                bottomIslandAmbientView
+                    .transition(.opacity)
             }
         }
-        .overlay(alignment: attachedToTop ? .bottomTrailing : .topTrailing) {
+        .frame(width: width, height: height)
+        .background(
+            shape
+                .fill(Color.clear)
+                .background(ThemedGlass(shape: shape))
+                .overlay(
+                    currentTheme.color.opacity(0.14)
+                        .clipShape(shape)
+                )
+                .overlay(shape.stroke(Color.white.opacity(isExpanded ? 0.15 : 0.08), lineWidth: 0.75))
+                .shadow(
+                    color: Color.black.opacity(isExpanded ? 0.55 : 0.35),
+                    radius: isExpanded ? 18 : 5,
+                    y: -1
+                )
+        )
+        .overlay(alignment: .topTrailing) {
             if isExpanded {
                 SettingsCornerButton(
                     isHovered: interaction.isSettingsHovered,
                     onInteract: { interaction.pinnedOpen = true }
                 )
-                .scaleEffect(settingsScale)
-                .offset(
-                    x: settingsOffset.width,
-                    y: settingsOffset.height
-                )
+                .scaleEffect(0.9)
+                .offset(x: 40, y: 10)
             }
         }
-        .shadow(
-            color: Color.black.opacity(isExpanded ? 0.45 : 0.25),
-            radius: isExpanded ? 12 : 3,
-            y: attachedToTop ? 4 : -4
-        )
+    }
+
+    private var bottomIslandAmbientView: some View {
+        HStack(spacing: 8) {
+            if hasNeedsAttention {
+                Circle()
+                    .fill(Color(red: 1.0, green: 0.70, blue: 0.12))
+                    .frame(width: 5, height: 5)
+                    .shadow(color: Color(red: 1.0, green: 0.70, blue: 0.12), radius: 3)
+                    .padding(.top, 4)
+            } else if hasWorking {
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 4, height: 4)
+                    .padding(.top, 4)
+            }
+        }
+        .frame(height: 20)
     }
 
     // MARK: - Morphing Notch Rail
@@ -943,6 +1089,12 @@ struct NotchView: View {
                     )
                     .frame(width: 72, height: 76)
                     .contentShape(Rectangle())
+                    .onHover { hovering in
+                        guard hovering else { return }
+                        interaction.hoveredIndex = index
+                        interaction.isDetailVisible = true
+                        interaction.isHovered = true
+                    }
                     .onTapGesture {
                         withAnimation(.spring(response: 0.18, dampingFraction: 0.88)) {
                             interaction.pinnedOpen.toggle()
@@ -959,11 +1111,15 @@ struct NotchView: View {
             }
             .opacity(isExpanded ? 1.0 : 0.0)
             .scaleEffect(isExpanded ? 1.0 : 0.85, anchor: .topTrailing)
+            .animation(
+                .spring(response: AppSettings.animationDuration, dampingFraction: 0.86),
+                value: isExpanded
+            )
             .padding(.top, 48)
             .padding(.bottom, 48)
             .frame(width: 72)
         }
-        .frame(width: isExpanded ? 72 : 10, height: isExpanded ? nil : 64, alignment: isLeft ? .topLeading : .topTrailing)
+        .frame(width: isExpanded ? 72 : 20, height: isExpanded ? nil : 64, alignment: isLeft ? .topLeading : .topTrailing)
         .background(
             OrientedRailShape(
                 flareWidth: isExpanded ? 24 : 0,
@@ -983,7 +1139,7 @@ struct NotchView: View {
                 )
             )
             .overlay(
-                AppSettings.currentTheme.color.opacity(0.14)
+                currentTheme.color.opacity(0.14)
                     .clipShape(
                         OrientedRailShape(
                             flareWidth: isExpanded ? 24 : 0,
@@ -1003,14 +1159,16 @@ struct NotchView: View {
                         .fill(Color(red: 1.0, green: 0.70, blue: 0.12))
                         .frame(width: 5, height: 5)
                         .shadow(color: Color(red: 1.0, green: 0.70, blue: 0.12), radius: 3)
-                        .padding(.trailing, 2.5)
+                        .padding(.trailing, isLeft ? 0 : 6)
+                        .padding(.leading, isLeft ? 6 : 0)
                         .padding(.top, 8)
                 } else if hasWorking {
                     // Ambient Pure White Solid Dot on Collapsed Notch Bezel
                     Circle()
                         .fill(Color.white)
                         .frame(width: 4, height: 4)
-                        .padding(.trailing, 2.5)
+                        .padding(.trailing, isLeft ? 0 : 6)
+                        .padding(.leading, isLeft ? 6 : 0)
                         .padding(.top, 8)
                 }
             }
@@ -1034,6 +1192,11 @@ struct NotchView: View {
 struct SettingsCornerButton: View {
     let isHovered: Bool
     let onInteract: () -> Void
+    @AppStorage(AppSettings.themeColorKey) private var themeRaw = ThemeColor.red.rawValue
+
+    private var currentTheme: ThemeColor {
+        ThemeColor(rawValue: themeRaw) ?? .red
+    }
 
     var body: some View {
         Button {
@@ -1046,7 +1209,7 @@ struct SettingsCornerButton: View {
                     .frame(width: 52, height: 52)
                     .overlay(
                         Circle()
-                            .fill(AppSettings.currentTheme.color.opacity(0.14))
+                            .fill(currentTheme.color.opacity(0.14))
                     )
                     .overlay(
                         Circle()
@@ -1074,79 +1237,148 @@ struct SettingsCornerButton: View {
     }
 }
 
+/// Sleek inline circular settings gear button that is seamlessly integrated into horizontal Dynamic Notch / Island bars.
+struct SettingsInlineButton: View {
+    let isHovered: Bool
+    let onInteract: () -> Void
+
+    var body: some View {
+        Button {
+            onInteract()
+            NotificationCenter.default.post(name: .openUsageNotchSettings, object: nil)
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(Color.white.opacity(isHovered ? 0.20 : 0.08))
+                    .frame(width: 36, height: 36)
+                    .overlay(
+                        Circle()
+                            .stroke(Color.white.opacity(isHovered ? 0.40 : 0.16), lineWidth: 0.8)
+                    )
+
+                Image(systemName: "gearshape")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(.white.opacity(isHovered ? 1.0 : 0.75))
+                    .rotationEffect(.degrees(isHovered ? 45 : 0))
+            }
+            .scaleEffect(isHovered ? 1.06 : 1.0)
+            .animation(.spring(response: 0.22, dampingFraction: 0.8), value: isHovered)
+        }
+        .buttonStyle(.plain)
+        .frame(width: 44, height: 44)
+        .contentShape(Rectangle())
+    }
+}
+
 // MARK: - Live Agent Activity Motion Indicators
 
-/// High-precision Swiss chronograph aperture ring with 12 calibrated radial ticks
-/// and a razor-sharp orbiting laser needle (Zero glow, pure vector precision).
+/// High-precision Swiss chronograph aperture perimeter tracer that glides along
+/// the exact outer path of any selected shape (Circle, Squircle, Rounded, Square)
+/// without rotating the shape geometry across the center.
 struct PrecisionChronographAperture: View {
-    @State private var rotation: Double = 0
+    var shape: ProviderIconShape = .circle
+
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            let time = timeline.date.timeIntervalSinceReferenceDate
+            let progress = (time.truncatingRemainder(dividingBy: 1.6)) / 1.6
+
+            ZStack {
+                // Outer Precision Bezel Hairline Track in chosen shape
+                strokeBezel(Color.white.opacity(0.20), lineWidth: 1.2)
+
+                // Perimeter laser beam traveling around the chosen shape's edge
+                ShapePerimeterTracer(
+                    shape: shape,
+                    progress: progress,
+                    strokeStyle: StrokeStyle(lineWidth: 3.4, lineCap: .round)
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func strokeBezel(_ color: Color, lineWidth: CGFloat) -> some View {
+        switch shape {
+        case .circle:
+            Circle().stroke(color, lineWidth: lineWidth)
+        case .squircle:
+            RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(color, lineWidth: lineWidth)
+        case .rounded:
+            RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(color, lineWidth: lineWidth)
+        case .square:
+            RoundedRectangle(cornerRadius: 3, style: .continuous).stroke(color, lineWidth: lineWidth)
+        }
+    }
+}
+
+/// Continuous perimeter tracer traveling along any geometric shape path
+struct ShapePerimeterTracer: View {
+    let shape: ProviderIconShape
+    let progress: Double // 0.0 ... 1.0
+    let length: Double = 0.28 // fraction of perimeter
+    let strokeStyle: StrokeStyle
 
     var body: some View {
         ZStack {
-            // Outer Precision Bezel Hairline
-            Circle()
-                .stroke(Color.white.opacity(0.22), lineWidth: 1)
-
-            // 12 Calibrated Precision Ticks (Major Cardinals + Minor Subdivisions)
-            ForEach(0..<12, id: \.self) { i in
-                let isCardinal = (i % 3 == 0)
-                Rectangle()
-                    .fill(Color.white.opacity(isCardinal ? 0.65 : 0.28))
-                    .frame(width: isCardinal ? 1.5 : 1, height: isCardinal ? 4.5 : 3)
-                    .offset(y: -19.5)
-                    .rotationEffect(.degrees(Double(i) * 30))
+            // Primary segment
+            let start1 = progress
+            let end1 = min(1.0, progress + length)
+            if start1 < 1.0 {
+                trimmedShape(from: CGFloat(start1), to: CGFloat(end1))
             }
 
-            // The Active Precision Orbiting Laser Arc
-            Circle()
-                .trim(from: 0, to: 0.33)
-                .stroke(
-                    AngularGradient(
-                        gradient: Gradient(colors: [
-                            .clear,
-                            Color.white.opacity(0.15),
-                            Color.white.opacity(0.65),
-                            Color.white
-                        ]),
-                        center: .center,
-                        startAngle: .degrees(0),
-                        endAngle: .degrees(120)
-                    ),
-                    style: StrokeStyle(lineWidth: 2.2, lineCap: .round)
-                )
-                .rotationEffect(.degrees(rotation))
-
-            // Precision Diamond Head Index
-            Rectangle()
-                .fill(Color.white)
-                .frame(width: 3.5, height: 3.5)
-                .rotationEffect(.degrees(45))
-                .offset(y: -21)
-                .rotationEffect(.degrees(rotation + 120))
+            // Wrap-around segment past the 1.0 boundary
+            if progress + length > 1.0 {
+                let end2 = (progress + length) - 1.0
+                trimmedShape(from: 0.0, to: CGFloat(min(1.0, end2)))
+            }
         }
-        .onAppear {
-            withAnimation(.linear(duration: 1.8).repeatForever(autoreverses: false)) {
-                rotation = 360
-            }
+    }
+
+    @ViewBuilder
+    private func trimmedShape(from start: CGFloat, to end: CGFloat) -> some View {
+        let beamColor = Color.white
+
+        switch shape {
+        case .circle:
+            Circle()
+                .trim(from: start, to: end)
+                .stroke(beamColor, style: strokeStyle)
+                .rotationEffect(.degrees(-90))
+        case .squircle:
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .trim(from: start, to: end)
+                .stroke(beamColor, style: strokeStyle)
+                .rotationEffect(.degrees(-90))
+        case .rounded:
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .trim(from: start, to: end)
+                .stroke(beamColor, style: strokeStyle)
+                .rotationEffect(.degrees(-90))
+        case .square:
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .trim(from: start, to: end)
+                .stroke(beamColor, style: strokeStyle)
+                .rotationEffect(.degrees(-90))
         }
     }
 }
 
 /// Radiant warm amber sonar beacon indicating that user input or approval is required.
 struct AgentNeedsAttentionBeacon: View {
+    var shape: ProviderIconShape = .circle
     @State private var pulse: Bool = false
     private let accentColor = Color(red: 1.0, green: 0.70, blue: 0.12)
 
     var body: some View {
         ZStack {
             // Layer 1: Sonar Radar Ping expanding outward
-            Circle()
-                .stroke(accentColor.opacity(pulse ? 0.0 : 0.7), lineWidth: 1.5)
+            strokeBeacon(accentColor.opacity(pulse ? 0.0 : 0.7), lineWidth: 1.5)
                 .scaleEffect(pulse ? 1.32 : 1.0)
 
             // Layer 2: Warm ambient inner rim glow
-            Circle()
-                .stroke(accentColor.opacity(pulse ? 0.45 : 0.2), lineWidth: 2)
+            strokeBeacon(accentColor.opacity(pulse ? 0.45 : 0.2), lineWidth: 2)
 
             // Layer 3: Jewel Badge at top-right
             ZStack {
@@ -1175,6 +1407,20 @@ struct AgentNeedsAttentionBeacon: View {
             }
         }
     }
+
+    @ViewBuilder
+    private func strokeBeacon(_ color: Color, lineWidth: CGFloat) -> some View {
+        switch shape {
+        case .circle:
+            Circle().stroke(color, lineWidth: lineWidth)
+        case .squircle:
+            RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(color, lineWidth: lineWidth)
+        case .rounded:
+            RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(color, lineWidth: lineWidth)
+        case .square:
+            RoundedRectangle(cornerRadius: 3, style: .continuous).stroke(color, lineWidth: lineWidth)
+        }
+    }
 }
 
 // MARK: - Provider Rail Item (Ring + Percentage)
@@ -1183,6 +1429,11 @@ struct ProviderRailItem: View {
     let status: ProviderStatus
     let isHovered: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(AppSettings.providerIconShapeKey) private var iconShapeRaw = ProviderIconShape.circle.rawValue
+
+    private var currentShape: ProviderIconShape {
+        ProviderIconShape(rawValue: iconShapeRaw) ?? .circle
+    }
 
     private var remainingPercent: Double {
         status.primary?.remainingPercent ?? 0
@@ -1194,31 +1445,22 @@ struct ProviderRailItem: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            // Circular Gauge / Active Activity Ring
+            // Gauge / Active Activity Frame
             ZStack {
-                // Background Track Ring
-                Circle()
-                    .stroke(Color.white.opacity(0.14), lineWidth: 3.5)
+                // Background Track
+                trackView
 
-                // When STOPPED/IDLE: Display standard quota ring (Green / Yellow / Red based on remaining quota)
+                // When STOPPED/IDLE: Display standard quota gauge
                 if !status.activity.isWorking {
-                    Circle()
-                        .trim(from: 0, to: max(0.02, CGFloat(remainingPercent / 100)))
-                        .stroke(
-                            gaugeColor,
-                            style: StrokeStyle(lineWidth: 3.5, lineCap: .round)
-                        )
-                        .rotationEffect(.degrees(-90))
+                    gaugeFillView
                 }
 
-                // When RUNNING: Completely transforms into the Precision Chronograph Aperture (Zero glow, pure precision)
+                // When RUNNING: Precision Chronograph Aperture
                 if status.activity.isWorking {
                     if reduceMotion {
-                        Circle()
-                            .stroke(Color.white.opacity(0.85), style: StrokeStyle(lineWidth: 2.2, lineCap: .round))
-                            .rotationEffect(.degrees(-90))
+                        chronographFallbackView
                     } else {
-                        PrecisionChronographAperture()
+                        PrecisionChronographAperture(shape: currentShape)
                     }
                 } else if status.activity.needsAttention {
                     if reduceMotion {
@@ -1227,7 +1469,7 @@ struct ProviderRailItem: View {
                             .frame(width: 8, height: 8)
                             .offset(x: 15, y: -15)
                     } else {
-                        AgentNeedsAttentionBeacon()
+                        AgentNeedsAttentionBeacon(shape: currentShape)
                     }
                 }
 
@@ -1248,6 +1490,63 @@ struct ProviderRailItem: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
     }
+
+    @ViewBuilder
+    private var trackView: some View {
+        switch currentShape {
+        case .circle:
+            Circle().stroke(Color.white.opacity(0.14), lineWidth: 5.2)
+        case .squircle:
+            RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.white.opacity(0.14), lineWidth: 5.2)
+        case .rounded:
+            RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(Color.white.opacity(0.14), lineWidth: 5.2)
+        case .square:
+            RoundedRectangle(cornerRadius: 3, style: .continuous).stroke(Color.white.opacity(0.14), lineWidth: 5.2)
+        }
+    }
+
+    @ViewBuilder
+    private var gaugeFillView: some View {
+        let trimEnd = max(0.02, CGFloat(remainingPercent / 100))
+        let strokeStyle = StrokeStyle(lineWidth: 5.2, lineCap: .round)
+        switch currentShape {
+        case .circle:
+            Circle()
+                .trim(from: 0, to: trimEnd)
+                .stroke(gaugeColor, style: strokeStyle)
+                .rotationEffect(.degrees(-90))
+        case .squircle:
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .trim(from: 0, to: trimEnd)
+                .stroke(gaugeColor, style: strokeStyle)
+                .rotationEffect(.degrees(-90))
+        case .rounded:
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .trim(from: 0, to: trimEnd)
+                .stroke(gaugeColor, style: strokeStyle)
+                .rotationEffect(.degrees(-90))
+        case .square:
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .trim(from: 0, to: trimEnd)
+                .stroke(gaugeColor, style: strokeStyle)
+                .rotationEffect(.degrees(-90))
+        }
+    }
+
+    @ViewBuilder
+    private var chronographFallbackView: some View {
+        let strokeStyle = StrokeStyle(lineWidth: 3.2, lineCap: .round)
+        switch currentShape {
+        case .circle:
+            Circle().stroke(Color.white.opacity(0.85), style: strokeStyle).rotationEffect(.degrees(-90))
+        case .squircle:
+            RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.white.opacity(0.85), style: strokeStyle).rotationEffect(.degrees(-90))
+        case .rounded:
+            RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(Color.white.opacity(0.85), style: strokeStyle).rotationEffect(.degrees(-90))
+        case .square:
+            RoundedRectangle(cornerRadius: 3, style: .continuous).stroke(Color.white.opacity(0.85), style: strokeStyle).rotationEffect(.degrees(-90))
+        }
+    }
 }
 
 // MARK: - Detail Popover Card
@@ -1257,17 +1556,25 @@ struct DetailPopoverCard: View {
     let pointerY: CGFloat
     let pointerOnLeft: Bool
     let verticalPointerOnTop: Bool?
+    let pointerX: CGFloat?
+    @AppStorage(AppSettings.themeColorKey) private var themeRaw = ThemeColor.red.rawValue
+
+    private var currentTheme: ThemeColor {
+        ThemeColor(rawValue: themeRaw) ?? .red
+    }
 
     init(
         status: ProviderStatus,
         pointerY: CGFloat,
         pointerOnLeft: Bool = false,
-        verticalPointerOnTop: Bool? = nil
+        verticalPointerOnTop: Bool? = nil,
+        pointerX: CGFloat? = nil
     ) {
         self.status = status
         self.pointerY = pointerY
         self.pointerOnLeft = pointerOnLeft
         self.verticalPointerOnTop = verticalPointerOnTop
+        self.pointerX = pointerX
     }
 
     private var primaryWindow: UsageWindow? {
@@ -1417,17 +1724,17 @@ struct DetailPopoverCard: View {
     private var cardBackground: some View {
         if let verticalPointerOnTop {
             let shape = VerticalPopoverCalloutShape(
-                pointerX: cardWidth / 2,
+                pointerX: pointerX ?? (cardWidth / 2),
                 pointerOnTop: verticalPointerOnTop
             )
             ThemedGlass(shape: shape)
-                .overlay(AppSettings.currentTheme.color.opacity(0.14).clipShape(shape))
+                .overlay(currentTheme.color.opacity(0.14).clipShape(shape))
                 .overlay(shape.stroke(Color.white.opacity(0.12), lineWidth: 1))
                 .shadow(color: Color.black.opacity(0.65), radius: 24, y: verticalPointerOnTop ? 10 : -10)
         } else {
             let shape = PopoverCalloutShape(pointerY: pointerY, pointerOnLeft: pointerOnLeft)
             ThemedGlass(shape: shape)
-                .overlay(AppSettings.currentTheme.color.opacity(0.14).clipShape(shape))
+                .overlay(currentTheme.color.opacity(0.14).clipShape(shape))
                 .overlay(shape.stroke(Color.white.opacity(0.12), lineWidth: 1))
                 .shadow(color: Color.black.opacity(0.65), radius: 24, x: pointerOnLeft ? 8 : -8, y: 10)
         }
