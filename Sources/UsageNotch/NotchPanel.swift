@@ -2,6 +2,27 @@ import AppKit
 import Observation
 import SwiftUI
 
+// MARK: - Glass
+
+struct GlassMaterialView: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView()
+            glass.style = .regular
+            glass.cornerRadius = 0
+            return glass
+        }
+
+        let translucent = NSVisualEffectView()
+        translucent.material = .hudWindow
+        translucent.blendingMode = .behindWindow
+        translucent.state = .active
+        return translucent
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
 // MARK: - Shapes
 
 /// Smooth Apple-style curved notch with true concave entry scoops and convex shoulders.
@@ -566,7 +587,17 @@ struct NotchView: View {
                 flareHeight: isExpanded ? 36 : 0,
                 cornerRadius: isExpanded ? 28 : 8
             )
-            .fill(Color.black)
+            .fill(Color.clear)
+            .background(
+                GlassMaterialView()
+                    .clipShape(
+                        RightEdgeNotchShape(
+                            flareWidth: isExpanded ? 24 : 0,
+                            flareHeight: isExpanded ? 36 : 0,
+                            cornerRadius: isExpanded ? 28 : 8
+                        )
+                    )
+            )
             .shadow(color: Color.black.opacity(isExpanded ? 0.5 : 0.35), radius: isExpanded ? 14 : 5, x: isExpanded ? -4 : -1, y: 0)
         )
         .overlay(alignment: .topTrailing) {
@@ -616,8 +647,8 @@ struct SettingsCornerButton: View {
         } label: {
             ZStack {
                 // Solid pitch-black circular background
-                Circle()
-                    .fill(Color.black)
+                GlassMaterialView()
+                    .clipShape(Circle())
                     .frame(width: 52, height: 52)
                     .overlay(
                         Circle()
@@ -641,12 +672,7 @@ struct SettingsCornerButton: View {
     }
 
     private func openSettings() {
-        NSApp.activate(ignoringOtherApps: true)
-        if #available(macOS 14.0, *) {
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        } else {
-            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
-        }
+        NotificationCenter.default.post(name: .openUsageNotchSettings, object: nil)
     }
 }
 
