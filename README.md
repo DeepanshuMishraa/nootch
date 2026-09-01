@@ -1,4 +1,4 @@
-# Usage Notch
+# Agent Notch
 
 A native SwiftUI/AppKit macOS utility that shows installed AI providers in a right-edge expandable usage rail.
 
@@ -14,7 +14,7 @@ The first slice includes:
 - Automatic background refresh every 30 seconds.
 - Launch-at-login registration for bundled `.app` builds.
 
-Usage Notch implements each provider integration directly. It has no CodexBar package or runtime dependency. The quota sources are:
+Agent Notch implements each provider integration directly. It has no CodexBar package or runtime dependency. The quota sources are:
 
 - Codex: local `~/.codex/auth.json` OAuth/PAT credentials and OpenAI's usage endpoint.
 - Claude: Claude Code Keychain OAuth credentials and Anthropic's OAuth usage endpoint.
@@ -30,7 +30,7 @@ The UI keeps the last successful snapshot during later refresh failures and neve
 ## Run
 
 ```sh
-swift run UsageNotch
+swift run AgentNotch
 ```
 
 ## Test

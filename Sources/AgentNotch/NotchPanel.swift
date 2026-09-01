@@ -879,6 +879,7 @@ struct NotchView: View {
     }
 
     var body: some View {
+        let _ = interaction.collapseToken
         ZStack(alignment: .trailing) {
             // Transparent background that catches clicks outside to dismiss immediately
             Color.clear
@@ -1235,7 +1236,7 @@ struct SettingsCornerButton: View {
     }
 
     private func openSettings() {
-        NotificationCenter.default.post(name: .openUsageNotchSettings, object: nil)
+        NotificationCenter.default.post(name: .openAgentNotchSettings, object: nil)
     }
 }
 
@@ -1247,7 +1248,7 @@ struct SettingsInlineButton: View {
     var body: some View {
         Button {
             onInteract()
-            NotificationCenter.default.post(name: .openUsageNotchSettings, object: nil)
+            NotificationCenter.default.post(name: .openAgentNotchSettings, object: nil)
         } label: {
             ZStack {
                 Circle()
@@ -1442,6 +1443,13 @@ struct ProviderRailItem: View {
         status.primary?.remainingPercent ?? 0
     }
 
+    private var displayedPercent: Double {
+        switch AppSettings.usageDisplayMode {
+        case .remaining: remainingPercent
+        case .used: 100 - remainingPercent
+        }
+    }
+
     private var gaugeColor: Color {
         status.primary?.tierColor ?? Color(red: 0.18, green: 0.85, blue: 0.45)
     }
@@ -1486,7 +1494,7 @@ struct ProviderRailItem: View {
             .animation(.spring(response: 0.28, dampingFraction: 0.8), value: isHovered)
 
             // Percentage Text
-            Text("\(Int(remainingPercent.rounded()))%")
+            Text("\(Int(displayedPercent.rounded()))%")
                 .font(.custom("Spline Sans Mono", size: 13).weight(.semibold))
                 .foregroundStyle(.white)
                 .frame(width: 52, height: 18, alignment: .center)
@@ -1594,6 +1602,18 @@ struct DetailPopoverCard: View {
         primaryWindow?.tierColor ?? Color(red: 0.18, green: 0.85, blue: 0.45)
     }
 
+    private func displayedPercent(for window: UsageWindow?) -> Double {
+        let remaining = window?.remainingPercent ?? 0
+        switch AppSettings.usageDisplayMode {
+        case .remaining: return remaining
+        case .used: return 100 - remaining
+        }
+    }
+
+    private var usageLabel: String {
+        AppSettings.usageDisplayMode == .remaining ? "Remaining" : "Used"
+    }
+
     private var cardWidth: CGFloat {
         312
     }
@@ -1661,13 +1681,13 @@ struct DetailPopoverCard: View {
 
                 // Horizontal Progress Bar
                 CustomProgressBar(
-                    value: primaryWindow?.remainingPercent ?? 0,
+                    value: displayedPercent(for: primaryWindow),
                     gradient: primaryWindow?.gradient ?? defaultGradient
                 )
 
                 // Sub-labels: "73% Remaining" and "Resets Thu 12:00 AM"
                 HStack {
-                    Text("\(Int(primaryWindow?.remainingPercent.rounded() ?? 0))% Remaining")
+                    Text("\(Int(displayedPercent(for: primaryWindow).rounded()))% \(usageLabel)")
                         .font(.system(size: 11.5, weight: .regular))
                         .foregroundStyle(Color.white.opacity(0.6))
 
@@ -1689,12 +1709,12 @@ struct DetailPopoverCard: View {
                         .foregroundStyle(Color.white.opacity(0.85))
 
                     CustomProgressBar(
-                        value: secondary.remainingPercent,
+                        value: displayedPercent(for: secondary),
                         gradient: secondary.gradient
                     )
 
                     HStack {
-                        Text("\(Int(secondary.remainingPercent.rounded()))% Remaining")
+                        Text("\(Int(displayedPercent(for: secondary).rounded()))% \(usageLabel)")
                             .font(.system(size: 11.5, weight: .regular))
                             .foregroundStyle(Color.white.opacity(0.6))
 

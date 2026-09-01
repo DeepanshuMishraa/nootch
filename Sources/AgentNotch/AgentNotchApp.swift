@@ -3,12 +3,12 @@ import ServiceManagement
 import SwiftUI
 
 extension Notification.Name {
-    static let openUsageNotchSettings = Notification.Name("UsageNotch.openSettings")
-    static let settingsDidChange = Notification.Name("UsageNotch.settingsDidChange")
+    static let openAgentNotchSettings = Notification.Name("AgentNotch.openSettings")
+    static let settingsDidChange = Notification.Name("AgentNotch.settingsDidChange")
 }
 
 @main
-struct UsageNotchApp: App {
+struct AgentNotchApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
@@ -38,7 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppSettings.configure()
         NSApp.setActivationPolicy(.accessory)
         settingsNotificationObserver = NotificationCenter.default.addObserver(
-            forName: .openUsageNotchSettings,
+            forName: .openAgentNotchSettings,
             object: nil,
             queue: .main
         ) { [weak self] _ in
@@ -117,7 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "Usage Notch"
+        window.title = "Agent Notch"
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .visible
         window.toolbarStyle = .unified
@@ -243,6 +243,7 @@ struct SettingsView: View {
     @AppStorage(AppSettings.animationDurationKey) private var animationDuration = 0.32
     @AppStorage(AppSettings.activityAnimationDurationKey) private var activityAnimationDuration = 1.6
     @AppStorage(AppSettings.overlayDisplayModeKey) private var displayModeRaw = OverlayDisplayMode.hover.rawValue
+    @AppStorage(AppSettings.usageDisplayModeKey) private var usageDisplayModeRaw = UsageDisplayMode.remaining.rawValue
     @AppStorage(AppSettings.providerIconShapeKey) private var iconShapeRaw = ProviderIconShape.circle.rawValue
     @State private var providerRevision = 0
     @State private var restartRequired = false
@@ -356,6 +357,20 @@ struct SettingsView: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
+                }
+
+                SettingsSection(title: "Usage") {
+                    Picker("Usage display", selection: $usageDisplayModeRaw) {
+                        ForEach(UsageDisplayMode.allCases) { mode in
+                            Text(mode.title).tag(mode.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .onChange(of: usageDisplayModeRaw) {
+                        postSettingsChange()
+                    }
                 }
 
                 SettingsSection(title: "Animation") {
@@ -554,7 +569,7 @@ struct SettingsView: View {
             }
             Button("Later", role: .cancel) {}
         } message: {
-            Text("Restart Usage Notch to apply the selected window style.")
+            Text("Restart Agent Notch to apply the selected window style.")
         }
         .id(providerRevision)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

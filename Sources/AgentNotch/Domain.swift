@@ -101,6 +101,20 @@ enum NotchPosition: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+enum UsageDisplayMode: String, CaseIterable, Identifiable, Sendable {
+    case remaining
+    case used
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .remaining: "Remaining"
+        case .used: "Used"
+        }
+    }
+}
+
 enum OverlayDisplayMode: String, CaseIterable, Identifiable, Sendable {
     case alwaysExpanded
     case hover
@@ -269,6 +283,7 @@ enum AppSettings {
     static let animationDurationKey = "UsageNotch.animationDuration"
     static let activityAnimationDurationKey = "UsageNotch.activityAnimationDuration"
     static let overlayDisplayModeKey = "UsageNotch.overlayDisplayMode"
+    static let usageDisplayModeKey = "UsageNotch.usageDisplayMode"
     static let providerIconShapeKey = "UsageNotch.providerIconShape"
     static let themeColorKey = "UsageNotch.themeColor"
     static let windowStyleKey = "UsageNotch.windowStyle"
@@ -287,6 +302,10 @@ enum AppSettings {
 
     static var currentTheme: ThemeColor {
         ThemeColor(rawValue: UserDefaults.standard.string(forKey: themeColorKey) ?? "") ?? .red
+    }
+
+    static var usageDisplayMode: UsageDisplayMode {
+        UsageDisplayMode(rawValue: UserDefaults.standard.string(forKey: usageDisplayModeKey) ?? "") ?? .remaining
     }
 
     static var overlayDisplayMode: OverlayDisplayMode {

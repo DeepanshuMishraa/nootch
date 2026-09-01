@@ -21,7 +21,7 @@ struct CodexAdapter: ProviderAdapter {
         var request = URLRequest(url: url)
         request.timeoutInterval = 20
         request.setValue("Bearer \(credentials.accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("UsageNotch", forHTTPHeaderField: "User-Agent")
+        request.setValue("AgentNotch", forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let accountID = credentials.accountID { request.setValue(accountID, forHTTPHeaderField: "ChatGPT-Account-Id") }
         do {
