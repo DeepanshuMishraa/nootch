@@ -276,113 +276,185 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        Form {
-            Section("General") {
-                LabeledContent("Version") {
-                    Text(appVersion)
-                        .foregroundStyle(.secondary)
-                }
-
-                Picker("Notch position", selection: $positionRaw) {
-                    ForEach(NotchPosition.allCases) { position in
-                        Text(position.title).tag(position.rawValue)
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 22) {
+                SettingsSection(title: "General") {
+                    HStack {
+                        Text("Version")
+                            .font(.system(size: 13))
+                        Spacer()
+                        Text(appVersion)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
                     }
-                }
-                .onChange(of: positionRaw) {
-                    postSettingsChange()
-                }
-            }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
 
-            Section("Window") {
-                if #available(macOS 26.0, *) {
-                    Picker("Window style", selection: $windowStyleRaw) {
-                        ForEach(WindowStyle.allCases) { style in
-                            Text(style.title).tag(style.rawValue)
+                    Divider().opacity(0.25).padding(.horizontal, 12)
+
+                    HStack {
+                        Text("Notch position")
+                            .font(.system(size: 13))
+                        Spacer()
+                        ElevatedMenuPicker(
+                            selection: Binding(
+                                get: { NotchPosition(rawValue: positionRaw) ?? .right },
+                                set: { positionRaw = $0.rawValue }
+                            ),
+                            options: NotchPosition.allCases,
+                            titleFor: { $0.title },
+                            onChange: { postSettingsChange() }
+                        )
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                }
+
+                SettingsSection(title: "Window") {
+                    HStack {
+                        Text("Window style")
+                            .font(.system(size: 13))
+                        Spacer()
+                        if #available(macOS 26.0, *) {
+                            ElevatedMenuPicker(
+                                selection: Binding(
+                                    get: { WindowStyle(rawValue: windowStyleRaw) ?? .liquidGlass },
+                                    set: {
+                                        windowStyleRaw = $0.rawValue
+                                        restartRequired = true
+                                    }
+                                ),
+                                options: WindowStyle.allCases,
+                                titleFor: { $0.title }
+                            )
+                        } else {
+                            ElevatedMenuPicker(
+                                selection: Binding(
+                                    get: { WindowStyle(rawValue: windowStyleRaw) ?? .translucent },
+                                    set: {
+                                        windowStyleRaw = $0.rawValue
+                                        restartRequired = true
+                                    }
+                                ),
+                                options: [.translucent, .solid],
+                                titleFor: { $0.title }
+                            )
                         }
                     }
-                } else {
-                    Picker("Window style", selection: $windowStyleRaw) {
-                        ForEach([WindowStyle.translucent, .solid]) { style in
-                            Text(style.title).tag(style.rawValue)
-                        }
-                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
                 }
-            }
 
-            Section("Colour") {
-                HStack(alignment: .center) {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
-                            ForEach(ThemeColor.allCases) { theme in
-                                ThemeSwatch(
-                                    theme: theme,
-                                    selection: $themeRaw,
-                                    usesRainbowTheme: usesRainbowTheme
+                SettingsSection(title: "Colour") {
+                    HStack(alignment: .center) {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 12) {
+                                ForEach(ThemeColor.allCases) { theme in
+                                    ThemeSwatch(
+                                        theme: theme,
+                                        selection: $themeRaw,
+                                        usesRainbowTheme: usesRainbowTheme
+                                    )
+                                }
+                            }
+                            .padding(.horizontal, 2)
+                            .padding(.vertical, 4)
+                        }
+
+                        Spacer(minLength: 16)
+
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(currentThemeDotFill)
+                                .frame(width: 8, height: 8)
+                                .shadow(color: currentTheme == .rainbow ? .clear : currentTheme.color.opacity(0.4), radius: 2)
+
+                            Text(currentThemeTitle)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.primary)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background {
+                            Capsule()
+                                .fill(Color.white.opacity(0.08))
+                        }
+                        .overlay {
+                            Capsule()
+                                .strokeBorder(
+                                    LinearGradient(
+                                        colors: [Color.white.opacity(0.22), Color.white.opacity(0.06)],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    ),
+                                    lineWidth: 0.75
                                 )
+                        }
+                        .shadow(color: Color.black.opacity(0.12), radius: 3, x: 0, y: 1.5)
+                        .animation(.easeInOut(duration: 0.15), value: themeRaw)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                }
+
+                SettingsSection(title: "Providers") {
+                    let supported = ProviderID.supported
+                    ForEach(Array(supported.enumerated()), id: \.element.id) { index, provider in
+                        let isInstalled = store.statuses.first { $0.provider == provider }?.detected ?? false
+                        VStack(spacing: 0) {
+                            HStack(spacing: 12) {
+                                ProviderLogo(provider: provider, size: 22)
+                                    .shadow(color: Color.black.opacity(0.2), radius: 2, y: 1)
+                                Text(provider.name)
+                                    .font(.system(size: 13))
+                                Spacer()
+                                if isInstalled {
+                                    Toggle(
+                                        "",
+                                        isOn: Binding(
+                                            get: { AppSettings.isProviderEnabled(provider) },
+                                            set: { enabled in
+                                                UserDefaults.standard.set(enabled, forKey: AppSettings.providerEnabledPrefix + provider.rawValue)
+                                                providerRevision &+= 1
+                                                postSettingsChange()
+                                            }
+                                        )
+                                    )
+                                    .labelsHidden()
+                                    .toggleStyle(.switch)
+                                    .controlSize(.mini)
+                                } else {
+                                    Text("Not installed")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 3)
+                                        .background {
+                                            Capsule()
+                                                .fill(Color.white.opacity(0.06))
+                                        }
+                                        .overlay {
+                                            Capsule()
+                                                .strokeBorder(Color.white.opacity(0.1), lineWidth: 0.5)
+                                        }
+                                }
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                            .opacity(isInstalled ? 1 : 0.45)
+
+                            if index < supported.count - 1 {
+                                Divider().opacity(0.25).padding(.horizontal, 12)
                             }
                         }
-                        .padding(.horizontal, 2)
-                        .padding(.vertical, 4)
                     }
-
-                    Spacer(minLength: 16)
-
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(currentThemeDotFill)
-                            .frame(width: 8, height: 8)
-                            .shadow(color: currentTheme == .rainbow ? .clear : currentTheme.color.opacity(0.4), radius: 2)
-
-                        Text(currentThemeTitle)
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.primary)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background {
-                        Capsule()
-                            .fill(.quaternary.opacity(0.4))
-                    }
-                    .overlay {
-                        Capsule()
-                            .strokeBorder(Color.white.opacity(0.1), lineWidth: 0.5)
-                    }
-                    .animation(.easeInOut(duration: 0.15), value: themeRaw)
-                }
-                .padding(.vertical, 2)
-            }
-
-            Section("Providers") {
-                ForEach(ProviderID.supported) { provider in
-                    let isInstalled = store.statuses.first { $0.provider == provider }?.detected ?? false
-                    HStack {
-                        ProviderLogo(provider: provider, size: 22)
-                        Text(provider.name)
-                        Spacer()
-                        if isInstalled {
-                            Toggle(
-                                "",
-                                isOn: Binding(
-                                    get: { AppSettings.isProviderEnabled(provider) },
-                                    set: { enabled in
-                                        UserDefaults.standard.set(enabled, forKey: AppSettings.providerEnabledPrefix + provider.rawValue)
-                                        providerRevision &+= 1
-                                        postSettingsChange()
-                                    }
-                                )
-                            )
-                            .labelsHidden()
-                        } else {
-                            Text("Not installed")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .opacity(isInstalled ? 1 : 0.45)
                 }
             }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 24)
+            .frame(maxWidth: 640)
+            .frame(maxWidth: .infinity)
         }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
         .onChange(of: themeRaw) {
             postSettingsChange()
         }
@@ -417,6 +489,97 @@ struct SettingsView: View {
         launcher.arguments = ["-n", applicationURL.path]
         try? launcher.run()
         NSApp.terminate(nil)
+    }
+}
+
+private struct SettingsSection<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title.uppercased())
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(.secondary)
+                .padding(.leading, 4)
+
+            VStack(spacing: 0) {
+                content()
+            }
+            .background {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.35))
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.white.opacity(0.05))
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.18),
+                                Color.white.opacity(0.05),
+                                Color.black.opacity(0.12)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 0.8
+                    )
+            }
+            .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 3)
+            .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
+        }
+    }
+}
+
+private struct ElevatedMenuPicker<T: Hashable & Identifiable>: View {
+    let selection: Binding<T>
+    let options: [T]
+    let titleFor: (T) -> String
+    var onChange: (() -> Void)? = nil
+
+    var body: some View {
+        Menu {
+            ForEach(options) { item in
+                Button {
+                    selection.wrappedValue = item
+                    onChange?()
+                } label: {
+                    if selection.wrappedValue == item {
+                        Label(titleFor(item), systemImage: "checkmark")
+                    } else {
+                        Text(titleFor(item))
+                    }
+                }
+            }
+        } label: {
+            Text(titleFor(selection.wrappedValue))
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.white.opacity(0.08))
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.22), Color.white.opacity(0.06)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            lineWidth: 0.75
+                        )
+                }
+                .shadow(color: Color.black.opacity(0.12), radius: 3, x: 0, y: 1.5)
+        }
+        .menuStyle(.borderlessButton)
     }
 }
 
