@@ -24,6 +24,7 @@ struct ProviderDiscovery: Sendable {
     static let defaultAdapters: [any ProviderAdapter] = [
         CodexAdapter(),
         ClaudeAdapter(),
+        OpenCodeAdapter(),
         ClinePassAdapter(),
         AntigravityAdapter(),
         CursorAdapter(),

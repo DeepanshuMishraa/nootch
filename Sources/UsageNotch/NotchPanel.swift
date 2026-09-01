@@ -224,13 +224,26 @@ final class NotchPanel: NSPanel {
     func place() {
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
         guard let screen else { return }
-        let frame = screen.visibleFrame
         let panelWidth: CGFloat = 440
         let panelHeight: CGFloat = 480
-        let x = frame.maxX - panelWidth
-        // Shift position up right below top menu bar
-        let y = max(frame.minY + 20, frame.maxY - panelHeight - 12)
-        setFrame(NSRect(x: x, y: y, width: panelWidth, height: panelHeight), display: true)
+        let position = NotchPosition(rawValue: UserDefaults.standard.string(forKey: AppSettings.notchPositionKey) ?? "") ?? .right
+        let frame = position == .notch ? screen.frame : screen.visibleFrame
+
+        let origin: CGPoint
+        switch position {
+        case .right:
+            origin = CGPoint(
+                x: frame.maxX - panelWidth,
+                y: max(frame.minY + 20, frame.maxY - panelHeight - 12))
+        case .bottomCenter:
+            origin = CGPoint(x: frame.midX - panelWidth / 2, y: frame.minY + 20)
+        case .leftCenter:
+            origin = CGPoint(x: frame.minX, y: frame.midY - panelHeight / 2)
+        case .notch:
+            origin = CGPoint(x: frame.midX - panelWidth / 2, y: frame.maxY - panelHeight)
+        }
+
+        setFrame(NSRect(origin: origin, size: NSSize(width: panelWidth, height: panelHeight)), display: true)
     }
 }
 
@@ -256,6 +269,12 @@ final class NotchPanelController {
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
     private var autoCollapseTask: Task<Void, Never>?
+
+    func settingsDidChange() {
+        panel.place()
+        interaction.panelFrame = panel.frame
+        interaction.collapseToken &+= 1
+    }
 
     func show(store: UsageStore) {
         panel.place()

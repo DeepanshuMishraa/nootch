@@ -4,6 +4,7 @@ import SwiftUI
 
 extension Notification.Name {
     static let openUsageNotchSettings = Notification.Name("UsageNotch.openSettings")
+    static let settingsDidChange = Notification.Name("UsageNotch.settingsDidChange")
 }
 
 @main
@@ -12,7 +13,7 @@ struct UsageNotchApp: App {
 
     var body: some Scene {
         Settings {
-            SettingsView()
+            SettingsView(store: appDelegate.store ?? UsageStore())
         }
         .commands {
             CommandGroup(replacing: .appSettings) {
@@ -29,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var refreshTask: Task<Void, Never>?
     private var activityTask: Task<Void, Never>?
     private var settingsNotificationObserver: NSObjectProtocol?
+    private var settingsChangeObserver: NSObjectProtocol?
     private var helloWorldWindow: NSWindow?
     private(set) var store: UsageStore?
 
@@ -41,6 +43,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.showHelloWorldWindow()
+            }
+        }
+
+        settingsChangeObserver = NotificationCenter.default.addObserver(
+            forName: .settingsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.panelController?.settingsDidChange()
             }
         }
 
@@ -81,6 +93,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let settingsNotificationObserver {
             NotificationCenter.default.removeObserver(settingsNotificationObserver)
         }
+        if let settingsChangeObserver {
+            NotificationCenter.default.removeObserver(settingsChangeObserver)
+        }
     }
 
     private func showHelloWorldWindow() {
@@ -119,7 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
 
-        let content = NSHostingView(rootView: SettingsView())
+        let content = NSHostingView(rootView: SettingsView(store: store ?? UsageStore()))
         content.translatesAutoresizingMaskIntoConstraints = false
 
         let background: NSView
@@ -175,8 +190,68 @@ extension AppDelegate: NSWindowDelegate {
 }
 
 struct SettingsView: View {
+    @Bindable var store: UsageStore
+    @AppStorage(AppSettings.notchPositionKey) private var positionRaw = NotchPosition.right.rawValue
+    @State private var providerRevision = 0
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
+    }
+
     var body: some View {
-        Text("Hell world")
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        Form {
+            Section("General") {
+                LabeledContent("Version") {
+                    Text(appVersion)
+                        .foregroundStyle(.secondary)
+                }
+
+                Picker("Notch position", selection: $positionRaw) {
+                    ForEach(NotchPosition.allCases) { position in
+                        Text(position.title).tag(position.rawValue)
+                    }
+                }
+                .onChange(of: positionRaw) {
+                    postSettingsChange()
+                }
+            }
+
+            Section("Providers") {
+                ForEach(ProviderID.supported) { provider in
+                    let isInstalled = store.statuses.first { $0.provider == provider }?.detected ?? false
+                    HStack {
+                        ProviderLogo(provider: provider, size: 22)
+                        Text(provider.name)
+                        Spacer()
+                        if isInstalled {
+                            Toggle(
+                                "",
+                                isOn: Binding(
+                                    get: { AppSettings.isProviderEnabled(provider) },
+                                    set: { enabled in
+                                        UserDefaults.standard.set(enabled, forKey: AppSettings.providerEnabledPrefix + provider.rawValue)
+                                        providerRevision &+= 1
+                                        postSettingsChange()
+                                    }
+                                )
+                            )
+                            .labelsHidden()
+                        } else {
+                            Text("Not installed")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .opacity(isInstalled ? 1 : 0.45)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .id(providerRevision)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func postSettingsChange() {
+        NotificationCenter.default.post(name: .settingsDidChange, object: nil)
     }
 }

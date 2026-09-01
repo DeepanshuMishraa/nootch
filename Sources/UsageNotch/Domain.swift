@@ -85,8 +85,36 @@ struct UsageWindow: Codable, Sendable, Equatable {
     }
 }
 
+enum NotchPosition: String, CaseIterable, Identifiable, Sendable {
+    case right
+    case bottomCenter
+    case leftCenter
+    case notch
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .right: "Right"
+        case .bottomCenter: "Bottom center"
+        case .leftCenter: "Left centered"
+        case .notch: "Notch"
+        }
+    }
+}
+
 enum ProviderID: String, Codable, CaseIterable, Identifiable, Sendable {
     case codex, claude, openCode, openCodeGo, chatGPT, cursor, copilot, antigravity, xai, grok, groq, clinePass
+
+    static let allCases: [Self] = [
+        .codex, .claude, .openCode, .chatGPT, .cursor, .copilot,
+        .antigravity, .xai, .grok, .groq, .clinePass
+    ]
+
+    static let supported: [Self] = [
+        .codex, .claude, .openCode, .cursor, .copilot, .antigravity, .clinePass
+    ]
+
     var id: Self { self }
     var name: String {
         switch self {
@@ -125,8 +153,20 @@ enum ProviderID: String, Codable, CaseIterable, Identifiable, Sendable {
         case .antigravity: "antigravity.svg"
         case .cursor: "cursor.svg"
         case .openCode, .openCodeGo: "opencode.svg"
-        case .xai, .grok, .groq, .clinePass: nil
+        case .xai, .grok, .groq: nil
+        case .clinePass: "cline.svg"
         }
+    }
+}
+
+enum AppSettings {
+    static let notchPositionKey = "UsageNotch.notchPosition"
+    static let providerEnabledPrefix = "UsageNotch.providerEnabled."
+
+    static func isProviderEnabled(_ provider: ProviderID) -> Bool {
+        let key = providerEnabledPrefix + provider.rawValue
+        guard UserDefaults.standard.object(forKey: key) != nil else { return true }
+        return UserDefaults.standard.bool(forKey: key)
     }
 }
 

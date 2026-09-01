@@ -24,7 +24,11 @@ final class UsageStore {
         self.lastRefresh = self.statuses.compactMap(\.updatedAt).max()
     }
 
-    var detectedStatuses: [ProviderStatus] { statuses.filter(\.detected) }
+    var detectedStatuses: [ProviderStatus] {
+        statuses.filter {
+            $0.detected && ($0.primary != nil || $0.secondary != nil) && AppSettings.isProviderEnabled($0.provider)
+        }
+    }
 
     func refreshActivity() {
         guard activityTask == nil else { return }
