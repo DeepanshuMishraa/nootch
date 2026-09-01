@@ -258,6 +258,23 @@ struct SettingsView: View {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
     }
 
+    private var currentThemeTitle: String {
+        currentTheme == .rainbow && !usesRainbowTheme ? "Black" : currentTheme.title
+    }
+
+    private var currentThemeDotFill: AnyShapeStyle {
+        if currentTheme == .rainbow && usesRainbowTheme {
+            return AnyShapeStyle(AngularGradient(
+                colors: [.red, .orange, .yellow, .green, .cyan, .blue, .purple, .pink, .red],
+                center: .center
+            ))
+        } else if currentTheme == .rainbow {
+            return AnyShapeStyle(Color.primary.opacity(0.85))
+        } else {
+            return AnyShapeStyle(currentTheme.color)
+        }
+    }
+
     var body: some View {
         Form {
             Section("General") {
@@ -293,9 +310,9 @@ struct SettingsView: View {
             }
 
             Section("Colour") {
-                VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .center) {
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 20) {
+                        HStack(spacing: 12) {
                             ForEach(ThemeColor.allCases) { theme in
                                 ThemeSwatch(
                                     theme: theme,
@@ -304,13 +321,35 @@ struct SettingsView: View {
                                 )
                             }
                         }
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, 2)
+                        .padding(.vertical, 4)
                     }
 
-                    Text(currentTheme == .rainbow && !usesRainbowTheme ? "Black" : currentTheme.title)
-                        .font(.headline)
-                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 16)
+
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(currentThemeDotFill)
+                            .frame(width: 8, height: 8)
+                            .shadow(color: currentTheme == .rainbow ? .clear : currentTheme.color.opacity(0.4), radius: 2)
+
+                        Text(currentThemeTitle)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.primary)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background {
+                        Capsule()
+                            .fill(.quaternary.opacity(0.4))
+                    }
+                    .overlay {
+                        Capsule()
+                            .strokeBorder(Color.white.opacity(0.1), lineWidth: 0.5)
+                    }
+                    .animation(.easeInOut(duration: 0.15), value: themeRaw)
                 }
+                .padding(.vertical, 2)
             }
 
             Section("Providers") {
@@ -385,36 +424,100 @@ private struct ThemeSwatch: View {
     let theme: ThemeColor
     @Binding var selection: String
     let usesRainbowTheme: Bool
+    @State private var isHovered = false
 
     private var isSelected: Bool { selection == theme.rawValue }
 
     var body: some View {
         Button {
-            selection = theme.rawValue
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
+                selection = theme.rawValue
+            }
         } label: {
-            Circle()
-                .fill(background)
-                .frame(width: 42, height: 42)
-                .overlay {
-                    Circle()
-                        .stroke(.white, lineWidth: isSelected ? 2 : 0)
-                        .padding(isSelected ? -5 : 0)
-                }
+            ZStack {
+                // Outer selection ring with subtle gap
+                Circle()
+                    .strokeBorder(outerRingStyle, lineWidth: 2)
+                    .frame(width: 32, height: 32)
+                    .scaleEffect(isSelected ? 1.0 : 0.65)
+                    .opacity(isSelected ? 1.0 : 0.0)
+
+                // Swatch color disc
+                Circle()
+                    .fill(swatchFill)
+                    .frame(width: 22, height: 22)
+                    .overlay {
+                        // Crisp inner highlight rim
+                        Circle()
+                            .strokeBorder(Color.white.opacity(0.22), lineWidth: 0.75)
+                    }
+                    .overlay {
+                        // Subtle edge definition
+                        Circle()
+                            .strokeBorder(Color.black.opacity(0.12), lineWidth: 0.5)
+                    }
+                    .shadow(
+                        color: shadowColor,
+                        radius: isSelected ? 4 : (isHovered ? 3 : 1.5),
+                        x: 0,
+                        y: isSelected ? 2 : 1
+                    )
+            }
+            .frame(width: 36, height: 36)
+            .contentShape(Circle())
+            .scaleEffect(isHovered && !isSelected ? 1.08 : 1.0)
+            .animation(.spring(response: 0.24, dampingFraction: 0.72), value: isSelected)
+            .animation(.spring(response: 0.2, dampingFraction: 0.75), value: isHovered)
         }
         .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+        }
         .accessibilityLabel(theme.title)
     }
 
-    private var background: AnyShapeStyle {
+    private var outerRingStyle: AnyShapeStyle {
         switch theme {
         case .rainbow where usesRainbowTheme:
             AnyShapeStyle(AngularGradient(
-                colors: [.red, .orange, .yellow, .green, .blue, .purple, .pink, .red],
-                center: .center))
+                colors: [.red, .orange, .yellow, .green, .cyan, .blue, .purple, .pink, .red],
+                center: .center
+            ))
         case .rainbow:
-            AnyShapeStyle(Color.black)
+            AnyShapeStyle(Color.primary.opacity(0.8))
+        case .gray:
+            AnyShapeStyle(Color.primary.opacity(0.65))
         default:
             AnyShapeStyle(theme.color)
         }
     }
+
+    private var swatchFill: AnyShapeStyle {
+        switch theme {
+        case .rainbow where usesRainbowTheme:
+            AnyShapeStyle(AngularGradient(
+                colors: [.red, .orange, .yellow, .green, .cyan, .blue, .purple, .pink, .red],
+                center: .center
+            ))
+        case .rainbow:
+            AnyShapeStyle(LinearGradient(
+                colors: [Color(white: 0.28), Color(white: 0.12)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ))
+        default:
+            AnyShapeStyle(theme.color)
+        }
+    }
+
+    private var shadowColor: Color {
+        if theme == .rainbow && usesRainbowTheme {
+            return Color.purple.opacity(0.28)
+        } else if theme == .rainbow {
+            return Color.black.opacity(0.35)
+        } else {
+            return theme.color.opacity(isSelected ? 0.38 : 0.18)
+        }
+    }
 }
+
