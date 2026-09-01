@@ -5,22 +5,62 @@ import SwiftUI
 // MARK: - Glass
 
 struct GlassMaterialView: NSViewRepresentable {
+    let tint: ThemeColor
+
     func makeNSView(context: Context) -> NSView {
-        if #available(macOS 26.0, *) {
+        if #available(macOS 26.0, *), AppSettings.activeWindowStyle == .liquidGlass {
             let glass = NSGlassEffectView()
             glass.style = .regular
             glass.cornerRadius = 0
+            glass.tintColor = tint.nsColor.withAlphaComponent(0.14)
             return glass
+        }
+
+        if AppSettings.activeWindowStyle == .solid {
+            let solid = NSView()
+            solid.wantsLayer = true
+            solid.layer?.backgroundColor = tint.solidNSColor.cgColor
+            return solid
         }
 
         let translucent = NSVisualEffectView()
         translucent.material = .hudWindow
         translucent.blendingMode = .behindWindow
         translucent.state = .active
+        translucent.wantsLayer = true
+        translucent.layer?.backgroundColor = tint.nsColor.withAlphaComponent(0.14).cgColor
         return translucent
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if #available(macOS 26.0, *), let glass = nsView as? NSGlassEffectView {
+            glass.tintColor = tint.nsColor.withAlphaComponent(0.14)
+        } else if let translucent = nsView as? NSVisualEffectView {
+            translucent.layer?.backgroundColor = tint.nsColor.withAlphaComponent(0.14).cgColor
+        }
+    }
+}
+
+struct ThemedGlass<S: Shape>: View {
+    let shape: S
+
+    var body: some View {
+        if #available(macOS 26.0, *), AppSettings.activeWindowStyle == .liquidGlass {
+            shape
+                .fill(Color.clear)
+                .glassEffect(
+                    .regular.tint(AppSettings.currentTheme.color.opacity(0.14)),
+                    in: shape
+                )
+        } else if AppSettings.activeWindowStyle == .solid {
+            shape.fill(AppSettings.currentTheme.solidColor)
+        } else {
+            shape
+                .fill(Color.clear)
+                .background(GlassMaterialView(tint: AppSettings.currentTheme))
+                .clipShape(shape)
+        }
+    }
 }
 
 // MARK: - Shapes
@@ -511,6 +551,7 @@ struct NotchView: View {
     }
 
     var body: some View {
+        let _ = interaction.collapseToken
         ZStack(alignment: .trailing) {
             // Transparent background that catches clicks outside to dismiss immediately
             Color.clear
@@ -554,6 +595,7 @@ struct NotchView: View {
             interaction.providerCount = activeStatuses.count
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        .id(interaction.collapseToken)
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isExpanded)
     }
 
@@ -608,7 +650,16 @@ struct NotchView: View {
             )
             .fill(Color.clear)
             .background(
-                GlassMaterialView()
+                ThemedGlass(
+                    shape: RightEdgeNotchShape(
+                        flareWidth: isExpanded ? 24 : 0,
+                        flareHeight: isExpanded ? 36 : 0,
+                        cornerRadius: isExpanded ? 28 : 8
+                    )
+                )
+            )
+            .overlay(
+                AppSettings.currentTheme.color.opacity(0.14)
                     .clipShape(
                         RightEdgeNotchShape(
                             flareWidth: isExpanded ? 24 : 0,
@@ -666,9 +717,12 @@ struct SettingsCornerButton: View {
         } label: {
             ZStack {
                 // Solid pitch-black circular background
-                GlassMaterialView()
-                    .clipShape(Circle())
+                ThemedGlass(shape: Circle())
                     .frame(width: 52, height: 52)
+                    .overlay(
+                        Circle()
+                            .fill(AppSettings.currentTheme.color.opacity(0.14))
+                    )
                     .overlay(
                         Circle()
                             .stroke(Color.white.opacity(isHovered ? 0.35 : 0.18), lineWidth: 1)
@@ -1019,7 +1073,14 @@ struct DetailPopoverCard: View {
         .frame(width: cardWidth)
         .background(
             PopoverCalloutShape(pointerY: pointerY)
-                .fill(Color(red: 0.05, green: 0.05, blue: 0.06))
+                .fill(Color.clear)
+                .background(
+                    ThemedGlass(shape: PopoverCalloutShape(pointerY: pointerY))
+                )
+                .overlay(
+                    AppSettings.currentTheme.color.opacity(0.14)
+                        .clipShape(PopoverCalloutShape(pointerY: pointerY))
+                )
                 .overlay(
                     PopoverCalloutShape(pointerY: pointerY)
                         .stroke(Color.white.opacity(0.12), lineWidth: 1)

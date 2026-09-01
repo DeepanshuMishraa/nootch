@@ -35,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) var store: UsageStore?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppSettings.configure()
         NSApp.setActivationPolicy(.accessory)
         settingsNotificationObserver = NotificationCenter.default.addObserver(
             forName: .openUsageNotchSettings,
@@ -53,6 +54,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.panelController?.settingsDidChange()
+                if let self, let window = self.helloWorldWindow {
+                    window.backgroundColor = self.windowBackgroundColor
+                    window.contentView = self.makeSettingsContentView()
+                }
             }
         }
 
@@ -116,8 +121,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .visible
         window.toolbarStyle = .unified
-        window.isOpaque = false
-        window.backgroundColor = .clear
+        window.isOpaque = AppSettings.activeWindowStyle == .solid
+        window.backgroundColor = windowBackgroundColor
         window.minSize = NSSize(width: 480, height: 320)
         window.contentView = makeSettingsContentView()
         window.setContentSize(NSSize(width: 1223, height: 846))
@@ -130,6 +135,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
     }
 
+    private var windowBackgroundColor: NSColor {
+        if AppSettings.activeWindowStyle == .solid {
+            return AppSettings.currentTheme.solidNSColor
+        }
+        return AppSettings.currentTheme.nsColor.withAlphaComponent(0.14)
+    }
+
     private func makeSettingsContentView() -> NSView {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
@@ -138,23 +150,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         content.translatesAutoresizingMaskIntoConstraints = false
 
         let background: NSView
-        if #available(macOS 26.0, *) {
+        let tintOverlay: NSView?
+        let contentSuperview: NSView
+        if #available(macOS 26.0, *), AppSettings.activeWindowStyle == .liquidGlass {
             let glass = NSGlassEffectView()
             glass.style = .regular
             glass.cornerRadius = 0
+            glass.tintColor = AppSettings.currentTheme.nsColor.withAlphaComponent(0.14)
             glass.contentView = content
             background = glass
-        } else {
+            tintOverlay = nil
+            contentSuperview = glass
+        } else if AppSettings.activeWindowStyle == .translucent {
             let translucent = NSVisualEffectView()
             translucent.material = .hudWindow
             translucent.blendingMode = .behindWindow
             translucent.state = .active
+            translucent.wantsLayer = true
+            translucent.layer?.backgroundColor = AppSettings.currentTheme.nsColor.withAlphaComponent(0.14).cgColor
             background = translucent
-            container.addSubview(content)
+            let tint = NSView()
+            tint.wantsLayer = true
+            tint.layer?.backgroundColor = AppSettings.currentTheme.nsColor.withAlphaComponent(0.16).cgColor
+            tintOverlay = tint
+            contentSuperview = container
+        } else {
+            let solid = NSView()
+            solid.wantsLayer = true
+            solid.layer?.backgroundColor = AppSettings.currentTheme.solidNSColor.cgColor
+            background = solid
+            tintOverlay = nil
+            contentSuperview = container
         }
 
         background.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(background)
+        if let tintOverlay {
+            tintOverlay.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(tintOverlay)
+        }
+        if #available(macOS 26.0, *), AppSettings.activeWindowStyle == .liquidGlass {
+            // NSGlassEffectView owns the hosted content.
+        } else {
+            container.addSubview(content)
+        }
 
         NSLayoutConstraint.activate([
             background.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -162,8 +201,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             background.topAnchor.constraint(equalTo: container.topAnchor),
             background.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
+        if let tintOverlay {
+            NSLayoutConstraint.activate([
+                tintOverlay.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                tintOverlay.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                tintOverlay.topAnchor.constraint(equalTo: container.topAnchor),
+                tintOverlay.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            ])
+        }
 
-        let contentSuperview = background as NSView
         NSLayoutConstraint.activate([
             content.leadingAnchor.constraint(equalTo: contentSuperview.leadingAnchor),
             content.trailingAnchor.constraint(equalTo: contentSuperview.trailingAnchor),
@@ -192,7 +238,21 @@ extension AppDelegate: NSWindowDelegate {
 struct SettingsView: View {
     @Bindable var store: UsageStore
     @AppStorage(AppSettings.notchPositionKey) private var positionRaw = NotchPosition.right.rawValue
+    @AppStorage(AppSettings.themeColorKey) private var themeRaw = ThemeColor.red.rawValue
+    @AppStorage(AppSettings.windowStyleKey) private var windowStyleRaw = WindowStyle.liquidGlass.rawValue
     @State private var providerRevision = 0
+    @State private var restartRequired = false
+
+    private var currentTheme: ThemeColor {
+        ThemeColor(rawValue: themeRaw) ?? .red
+    }
+
+    private var usesRainbowTheme: Bool {
+        if #available(macOS 26.0, *) {
+            return windowStyleRaw == WindowStyle.liquidGlass.rawValue
+        }
+        return false
+    }
 
     private var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
@@ -213,6 +273,43 @@ struct SettingsView: View {
                 }
                 .onChange(of: positionRaw) {
                     postSettingsChange()
+                }
+            }
+
+            Section("Window") {
+                if #available(macOS 26.0, *) {
+                    Picker("Window style", selection: $windowStyleRaw) {
+                        ForEach(WindowStyle.allCases) { style in
+                            Text(style.title).tag(style.rawValue)
+                        }
+                    }
+                } else {
+                    Picker("Window style", selection: $windowStyleRaw) {
+                        ForEach([WindowStyle.translucent, .solid]) { style in
+                            Text(style.title).tag(style.rawValue)
+                        }
+                    }
+                }
+            }
+
+            Section("Colour") {
+                VStack(alignment: .leading, spacing: 12) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 20) {
+                            ForEach(ThemeColor.allCases) { theme in
+                                ThemeSwatch(
+                                    theme: theme,
+                                    selection: $themeRaw,
+                                    usesRainbowTheme: usesRainbowTheme
+                                )
+                            }
+                        }
+                        .padding(.vertical, 6)
+                    }
+
+                    Text(currentTheme == .rainbow && !usesRainbowTheme ? "Black" : currentTheme.title)
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -247,11 +344,77 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
+        .onChange(of: themeRaw) {
+            postSettingsChange()
+        }
+        .onChange(of: windowStyleRaw) {
+            restartRequired = true
+        }
+        .alert("Restart required", isPresented: $restartRequired) {
+            Button("Restart", role: .destructive) {
+                restartApplication()
+            }
+            Button("Later", role: .cancel) {}
+        } message: {
+            Text("Restart Usage Notch to apply the selected window style.")
+        }
         .id(providerRevision)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func postSettingsChange() {
         NotificationCenter.default.post(name: .settingsDidChange, object: nil)
+    }
+
+    private func restartApplication() {
+        let applicationURL = Bundle.main.bundleURL
+        guard applicationURL.pathExtension == "app" else {
+            NSApp.terminate(nil)
+            return
+        }
+
+        let launcher = Process()
+        launcher.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        launcher.arguments = ["-n", applicationURL.path]
+        try? launcher.run()
+        NSApp.terminate(nil)
+    }
+}
+
+private struct ThemeSwatch: View {
+    let theme: ThemeColor
+    @Binding var selection: String
+    let usesRainbowTheme: Bool
+
+    private var isSelected: Bool { selection == theme.rawValue }
+
+    var body: some View {
+        Button {
+            selection = theme.rawValue
+        } label: {
+            Circle()
+                .fill(background)
+                .frame(width: 42, height: 42)
+                .overlay {
+                    Circle()
+                        .stroke(.white, lineWidth: isSelected ? 2 : 0)
+                        .padding(isSelected ? -5 : 0)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(theme.title)
+    }
+
+    private var background: AnyShapeStyle {
+        switch theme {
+        case .rainbow where usesRainbowTheme:
+            AnyShapeStyle(AngularGradient(
+                colors: [.red, .orange, .yellow, .green, .blue, .purple, .pink, .red],
+                center: .center))
+        case .rainbow:
+            AnyShapeStyle(Color.black)
+        default:
+            AnyShapeStyle(theme.color)
+        }
     }
 }

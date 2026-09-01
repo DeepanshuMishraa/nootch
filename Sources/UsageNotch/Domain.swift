@@ -159,9 +159,96 @@ enum ProviderID: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
+enum ThemeColor: String, CaseIterable, Identifiable, Sendable {
+    case rainbow, blue, purple, pink, red, orange, yellow, green, gray
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .rainbow: "Rainbow"
+        case .blue: "Blue"
+        case .purple: "Purple"
+        case .pink: "Pink"
+        case .red: "Red"
+        case .orange: "Orange"
+        case .yellow: "Yellow"
+        case .green: "Green"
+        case .gray: "Gray"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .rainbow: .clear
+        case .blue: Color(red: 0.08, green: 0.48, blue: 1)
+        case .purple: Color(red: 0.58, green: 0.25, blue: 0.68)
+        case .pink: Color(red: 0.95, green: 0.22, blue: 0.56)
+        case .red: Color(red: 1, green: 0.25, blue: 0.28)
+        case .orange: Color(red: 1, green: 0.45, blue: 0.05)
+        case .yellow: Color(red: 1, green: 0.72, blue: 0.02)
+        case .green: Color(red: 0.32, green: 0.72, blue: 0.24)
+        case .gray: Color(white: 0.56)
+        }
+    }
+
+    var nsColor: NSColor {
+        switch self {
+        case .rainbow: .clear
+        default: NSColor(color)
+        }
+    }
+
+    var solidColor: Color {
+        switch self {
+        case .rainbow: Color.black
+        case .blue: Color(red: 0.05, green: 0.12, blue: 0.22)
+        case .purple: Color(red: 0.15, green: 0.07, blue: 0.19)
+        case .pink: Color(red: 0.20, green: 0.05, blue: 0.12)
+        case .red: Color(red: 0.22, green: 0.04, blue: 0.05)
+        case .orange: Color(red: 0.22, green: 0.09, blue: 0.02)
+        case .yellow: Color(red: 0.20, green: 0.15, blue: 0.02)
+        case .green: Color(red: 0.05, green: 0.16, blue: 0.07)
+        case .gray: Color(red: 0.14, green: 0.14, blue: 0.15)
+        }
+    }
+
+    var solidNSColor: NSColor { NSColor(solidColor) }
+}
+
+enum WindowStyle: String, CaseIterable, Identifiable, Sendable {
+    case liquidGlass, translucent, solid
+
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .liquidGlass: "Liquid glass"
+        case .translucent: "Translucent"
+        case .solid: "Solid"
+        }
+    }
+}
+
 enum AppSettings {
     static let notchPositionKey = "UsageNotch.notchPosition"
+    static let themeColorKey = "UsageNotch.themeColor"
+    static let windowStyleKey = "UsageNotch.windowStyle"
+    @MainActor static var activeWindowStyle: WindowStyle = .liquidGlass
+
+    @MainActor static func configure() {
+        let saved = WindowStyle(rawValue: UserDefaults.standard.string(forKey: windowStyleKey) ?? "") ?? .liquidGlass
+        if #available(macOS 26.0, *) {
+            activeWindowStyle = saved
+        } else {
+            activeWindowStyle = saved == .liquidGlass ? .translucent : saved
+        }
+    }
+
     static let providerEnabledPrefix = "UsageNotch.providerEnabled."
+
+    static var currentTheme: ThemeColor {
+        ThemeColor(rawValue: UserDefaults.standard.string(forKey: themeColorKey) ?? "") ?? .red
+    }
 
     static func isProviderEnabled(_ provider: ProviderID) -> Bool {
         let key = providerEnabledPrefix + provider.rawValue
