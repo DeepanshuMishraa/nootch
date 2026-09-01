@@ -54,7 +54,9 @@ struct ThemedGlass<S: Shape>: View {
             shape
                 .fill(Color.clear)
                 .glassEffect(
-                    .regular.tint(currentTheme.color.opacity(0.14)),
+                    .regular
+                        .tint(currentTheme.color.opacity(0.14))
+                        .interactive(),
                     in: shape
                 )
                 .overlay(glassReflection)
@@ -1281,7 +1283,8 @@ struct PrecisionChronographAperture: View {
     var body: some View {
         TimelineView(.animation) { timeline in
             let time = timeline.date.timeIntervalSinceReferenceDate
-            let progress = (time.truncatingRemainder(dividingBy: 1.6)) / 1.6
+            let cycleDuration = AppSettings.activityAnimationDuration
+            let progress = (time.truncatingRemainder(dividingBy: cycleDuration)) / cycleDuration
 
             ZStack {
                 // Outer Precision Bezel Hairline Track in chosen shape
@@ -1484,8 +1487,10 @@ struct ProviderRailItem: View {
 
             // Percentage Text
             Text("\(Int(remainingPercent.rounded()))%")
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .font(.custom("Spline Sans Mono", size: 13).weight(.semibold))
                 .foregroundStyle(.white)
+                .frame(width: 52, height: 18, alignment: .center)
+                .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())

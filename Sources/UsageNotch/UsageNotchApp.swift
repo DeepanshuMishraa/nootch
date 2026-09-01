@@ -241,6 +241,7 @@ struct SettingsView: View {
     @AppStorage(AppSettings.themeColorKey) private var themeRaw = ThemeColor.red.rawValue
     @AppStorage(AppSettings.windowStyleKey) private var windowStyleRaw = WindowStyle.liquidGlass.rawValue
     @AppStorage(AppSettings.animationDurationKey) private var animationDuration = 0.32
+    @AppStorage(AppSettings.activityAnimationDurationKey) private var activityAnimationDuration = 1.6
     @AppStorage(AppSettings.overlayDisplayModeKey) private var displayModeRaw = OverlayDisplayMode.hover.rawValue
     @AppStorage(AppSettings.providerIconShapeKey) private var iconShapeRaw = ProviderIconShape.circle.rawValue
     @State private var providerRevision = 0
@@ -371,10 +372,22 @@ struct SettingsView: View {
                         Slider(value: $animationDuration, in: 0.12...0.80)
                             .tint(currentTheme == .rainbow ? Color.white.opacity(0.85) : currentTheme.color)
                             .onChange(of: animationDuration) {
-                                NSHapticFeedbackManager.defaultPerformer.perform(
-                                    .alignment,
-                                    performanceTime: .now
-                                )
+                                NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+                            }
+
+                        HStack {
+                            Text("Activity indicator speed")
+                                .font(.system(size: 13))
+                            Spacer()
+                            Text(String(format: "%.2fs", activityAnimationDuration))
+                                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Slider(value: $activityAnimationDuration, in: 0.4...3.0)
+                            .tint(currentTheme == .rainbow ? Color.white.opacity(0.85) : currentTheme.color)
+                            .onChange(of: activityAnimationDuration) {
+                                NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
                             }
                     }
                     .padding(.horizontal, 14)

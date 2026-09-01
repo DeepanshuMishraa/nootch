@@ -267,6 +267,7 @@ enum WindowStyle: String, CaseIterable, Identifiable, Sendable {
 enum AppSettings {
     static let notchPositionKey = "UsageNotch.notchPosition"
     static let animationDurationKey = "UsageNotch.animationDuration"
+    static let activityAnimationDurationKey = "UsageNotch.activityAnimationDuration"
     static let overlayDisplayModeKey = "UsageNotch.overlayDisplayMode"
     static let providerIconShapeKey = "UsageNotch.providerIconShape"
     static let themeColorKey = "UsageNotch.themeColor"
@@ -299,6 +300,11 @@ enum AppSettings {
     static var animationDuration: Double {
         let value = UserDefaults.standard.double(forKey: animationDurationKey)
         return value == 0 ? 0.32 : value
+    }
+
+    static var activityAnimationDuration: Double {
+        let value = UserDefaults.standard.double(forKey: activityAnimationDurationKey)
+        return value == 0 ? 1.6 : value
     }
 
     static func isProviderEnabled(_ provider: ProviderID) -> Bool {
