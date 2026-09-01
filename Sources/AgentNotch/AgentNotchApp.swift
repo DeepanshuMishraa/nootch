@@ -36,7 +36,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppSettings.configure()
-        NSApp.setActivationPolicy(.accessory)
+        applyDockVisibility()
+        if let iconURL = Bundle.module.url(forResource: "AgentNotchIcon", withExtension: "png"),
+           let icon = NSImage(contentsOf: iconURL) {
+            icon.isTemplate = false
+            NSApp.applicationIconImage = icon
+        }
+
         settingsNotificationObserver = NotificationCenter.default.addObserver(
             forName: .openAgentNotchSettings,
             object: nil,
@@ -101,6 +107,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let settingsChangeObserver {
             NotificationCenter.default.removeObserver(settingsChangeObserver)
         }
+    }
+
+    private func applyDockVisibility() {
+        let showInDock = UserDefaults.standard.bool(forKey: AppSettings.showInDockKey)
+        NSApp.setActivationPolicy(showInDock ? .regular : .accessory)
     }
 
     private func showHelloWorldWindow() {
@@ -244,6 +255,7 @@ struct SettingsView: View {
     @AppStorage(AppSettings.activityAnimationDurationKey) private var activityAnimationDuration = 1.6
     @AppStorage(AppSettings.overlayDisplayModeKey) private var displayModeRaw = OverlayDisplayMode.hover.rawValue
     @AppStorage(AppSettings.usageDisplayModeKey) private var usageDisplayModeRaw = UsageDisplayMode.remaining.rawValue
+    @AppStorage(AppSettings.showInDockKey) private var showInDock = false
     @AppStorage(AppSettings.providerIconShapeKey) private var iconShapeRaw = ProviderIconShape.circle.rawValue
     @State private var providerRevision = 0
     @State private var restartRequired = false
@@ -291,6 +303,23 @@ struct SettingsView: View {
                         Text(appVersion)
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+
+                    Divider()
+                        .padding(.horizontal, 14)
+
+                    HStack {
+                        Text("Show in Dock")
+                            .font(.system(size: 13))
+                        Spacer()
+                        Toggle("", isOn: $showInDock)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .onChange(of: showInDock) {
+                                NSApp.setActivationPolicy(showInDock ? .regular : .accessory)
+                            }
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)

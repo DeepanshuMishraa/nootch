@@ -284,6 +284,7 @@ enum AppSettings {
     static let activityAnimationDurationKey = "UsageNotch.activityAnimationDuration"
     static let overlayDisplayModeKey = "UsageNotch.overlayDisplayMode"
     static let usageDisplayModeKey = "UsageNotch.usageDisplayMode"
+    static let showInDockKey = "UsageNotch.showInDock"
     static let providerIconShapeKey = "UsageNotch.providerIconShape"
     static let themeColorKey = "UsageNotch.themeColor"
     static let windowStyleKey = "UsageNotch.windowStyle"
