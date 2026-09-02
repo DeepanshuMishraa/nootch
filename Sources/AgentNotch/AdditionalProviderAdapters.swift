@@ -44,9 +44,10 @@ struct OpenCodeGoAdapter: ProviderAdapter {
         do {
             let (data, response) = try await AdditionalProviderHTTP.get("https://opencode.ai/zen/go/v1/usage", bearer: key)
             guard response.statusCode == 200 else {
-                throw AdditionalProviderError.message(response.statusCode == 403
-                    ? "OpenCode Go subscription is not active."
-                    : "OpenCode Go returned HTTP \(response.statusCode).")
+                if response.statusCode == 403 {
+                    return .unavailable(.openCode, detected: false, source: "OpenCode Go")
+                }
+                throw AdditionalProviderError.message("OpenCode Go returned HTTP \(response.statusCode).")
             }
             let windows = Self.windows(from: data)
             guard windows.0 != nil else { throw AdditionalProviderError.message("OpenCode Go returned no usage windows.") }
@@ -82,27 +83,53 @@ struct OpenCodeGoAdapter: ProviderAdapter {
 struct OpenCodeAdapter: ProviderAdapter {
     let provider: ProviderID = .openCode
 
+    static var isInstalled: Bool {
+        let candidates = [
+            "~/.local/bin/opencode",
+            "/opt/homebrew/bin/opencode",
+            "/usr/local/bin/opencode",
+            "/usr/bin/opencode",
+        ].map { NSString(string: $0).expandingTildeInPath }
+        let executable = candidates.first(where: FileManager.default.isExecutableFile(atPath:))
+            ?? (ProcessInfo.processInfo.environment["PATH"] ?? "")
+                .split(separator: ":")
+                .map { "\($0)/opencode" }
+                .first(where: FileManager.default.isExecutableFile(atPath:))
+        return executable != nil || Self.credential(for: "opencode-go") != nil || Self.credential(for: "opencode") != nil
+    }
+
     func detect() async -> DetectionResult {
-        let executable = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map { "\($0)/opencode" }.first(where: FileManager.default.isExecutableFile(atPath:))
-        guard executable != nil || Self.hasOpenCodeGoCredentials else { return DetectionResult(detected: false, source: nil) }
-        return DetectionResult(detected: true, source: Self.hasOpenCodeGoCredentials ? "OpenCode Go credentials" : "OpenCode CLI")
+        guard Self.isInstalled else { return DetectionResult(detected: false, source: nil) }
+        return DetectionResult(detected: true, source: "OpenCode CLI")
     }
 
     func fetch() async -> ProviderStatus {
         guard (await detect()).detected else { return .unavailable(.openCode, detected: false) }
-        if Self.hasOpenCodeGoCredentials {
-            return await OpenCodeGoAdapter().fetch()
+
+        if Self.credential(for: "opencode-go") != nil {
+            let goStatus = await OpenCodeGoAdapter().fetch()
+            if goStatus.detected { return goStatus }
         }
-        return .unavailable(.openCode, detected: true, source: "OpenCode CLI", error: "OpenCode is installed. Usage requires an authenticated opencode.ai session.")
+
+        if Self.credential(for: "opencode") != nil {
+            return .unavailable(.openCode, detected: true, source: "OpenCode Zen")
+        }
+
+        return .unavailable(
+            .openCode,
+            detected: false,
+            source: "OpenCode subscription",
+            error: "OpenCode subscription is not active.")
     }
 
-    private static var hasOpenCodeGoCredentials: Bool {
+    private static func credential(for provider: String) -> String? {
         let path = NSString(string: "~/.local/share/opencode/auth.json").expandingTildeInPath
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let entry = object["opencode-go"] as? [String: Any],
-              let key = entry["key"] as? String else { return false }
-        return !key.isEmpty
+              let entry = object[provider] as? [String: Any],
+              let key = entry["key"] as? String,
+              !key.isEmpty else { return nil }
+        return key
     }
 }
 

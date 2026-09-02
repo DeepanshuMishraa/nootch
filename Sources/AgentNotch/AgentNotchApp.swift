@@ -257,7 +257,6 @@ struct SettingsView: View {
     @AppStorage(AppSettings.usageDisplayModeKey) private var usageDisplayModeRaw = UsageDisplayMode.remaining.rawValue
     @AppStorage(AppSettings.showInDockKey) private var showInDock = false
     @AppStorage(AppSettings.providerIconShapeKey) private var iconShapeRaw = ProviderIconShape.circle.rawValue
-    @State private var providerRevision = 0
     @State private var restartRequired = false
 
     private var currentTheme: ThemeColor {
@@ -531,7 +530,8 @@ struct SettingsView: View {
                 SettingsSection(title: "Providers") {
                     let supported = ProviderID.supported
                     ForEach(Array(supported.enumerated()), id: \.element.id) { index, provider in
-                        let isInstalled = store.statuses.first { $0.provider == provider }?.detected ?? false
+                        let isInstalled = (store.statuses.first { $0.provider == provider }?.detected ?? false)
+                            || (provider == .openCode && OpenCodeAdapter.isInstalled)
                         VStack(spacing: 0) {
                             HStack(spacing: 12) {
                                 ProviderLogo(provider: provider, size: 22)
@@ -546,8 +546,7 @@ struct SettingsView: View {
                                             get: { AppSettings.isProviderEnabled(provider) },
                                             set: { enabled in
                                                 UserDefaults.standard.set(enabled, forKey: AppSettings.providerEnabledPrefix + provider.rawValue)
-                                                providerRevision &+= 1
-                                                postSettingsChange()
+                                                store.refresh()
                                             }
                                         )
                                     )
@@ -573,6 +572,21 @@ struct SettingsView: View {
                             .padding(.horizontal, 14)
                             .padding(.vertical, 9)
                             .opacity(isInstalled ? 1 : 0.45)
+
+                            if provider == .openCode && isInstalled {
+                                let status = store.statuses.first { $0.provider == .openCode }
+                                HStack {
+                                    Text("Subscription")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Text(status?.detected == true ? (status?.source ?? "Active") : "Not active")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(status?.detected == true ? .secondary : Color.orange)
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.bottom, 9)
+                            }
 
                             if index < supported.count - 1 {
                                 Divider().opacity(0.25).padding(.horizontal, 12)
@@ -600,7 +614,6 @@ struct SettingsView: View {
         } message: {
             Text("Restart Agent Notch to apply the selected window style.")
         }
-        .id(providerRevision)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 

@@ -30,13 +30,20 @@ private actor AgyProcessKeeper {
 }
 
 private enum ProviderProcess {
-    static func run(_ executable: String, arguments: [String], timeout: TimeInterval = 10) async throws -> String {
+    static func run(
+        _ executable: String,
+        arguments: [String],
+        timeout: TimeInterval = 10,
+        environment: [String: String]? = nil) async throws -> String {
         try await Task.detached {
             let process = Process()
             let output = Pipe()
             let errors = Pipe()
             process.executableURL = URL(fileURLWithPath: executable)
             process.arguments = arguments
+            if let environment {
+                process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, value in value }
+            }
             process.standardOutput = output
             process.standardError = errors
             try process.run()
@@ -286,8 +293,56 @@ struct CopilotAdapter: ProviderAdapter {
         enum CodingKeys: String, CodingKey { case quotaSnapshots = "quota_snapshots", quotaResetDate = "quota_reset_date" }
     }
 
+    private struct CopilotApp: Decodable {
+        let oauthToken: String?
+
+        enum CodingKeys: String, CodingKey {
+            case oauthToken = "oauth_token"
+        }
+    }
+
     private static func githubToken() async -> String? {
-        if let token = ProcessInfo.processInfo.environment["GITHUB_TOKEN"]?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty { return token }
-        return try? await ProviderProcess.run("/usr/bin/env", arguments: ["gh", "auth", "token"])
+        if let token = ProcessInfo.processInfo.environment["GITHUB_TOKEN"]?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty {
+            return token
+        }
+
+        // Finder-launched apps do not inherit the shell's PATH, so check the
+        // standard gh locations explicitly before using Copilot's fallback token.
+        let candidates = [
+            "~/.local/bin/gh",
+            "~/bin/gh",
+            "/opt/homebrew/bin/gh",
+            "/usr/local/bin/gh",
+            "/usr/bin/gh",
+        ].map { NSString(string: $0).expandingTildeInPath }
+        let ghEnvironment = [
+            "HOME": NSHomeDirectory(),
+            "GH_CONFIG_DIR": NSString(string: "~/.config/gh").expandingTildeInPath,
+        ]
+        if let executable = candidates.first(where: FileManager.default.isExecutableFile(atPath:)),
+           let token = try? await ProviderProcess.run(executable, arguments: ["auth", "token"], environment: ghEnvironment),
+           !token.isEmpty {
+            return token
+        }
+
+        // Keep support for custom shell installations as a final fallback.
+        let pathCandidates = (ProcessInfo.processInfo.environment["PATH"] ?? "")
+            .split(separator: ":")
+            .map { "\($0)/gh" }
+        if let executable = pathCandidates.first(where: FileManager.default.isExecutableFile(atPath:)),
+           let token = try? await ProviderProcess.run(executable, arguments: ["auth", "token"], environment: ghEnvironment),
+           !token.isEmpty {
+            return token
+        }
+
+        // The Copilot CLI stores its OAuth token here. This covers machines
+        // with Copilot installed but without a separately authenticated gh CLI.
+        let appsPath = NSString(string: "~/.config/github-copilot/apps.json").expandingTildeInPath
+        if let data = try? Data(contentsOf: URL(fileURLWithPath: appsPath)),
+           let apps = try? JSONDecoder().decode([String: CopilotApp].self, from: data),
+           let token = apps.values.compactMap(\.oauthToken).first(where: { !$0.isEmpty }) {
+            return token
+        }
+        return nil
     }
 }

@@ -11,6 +11,7 @@ final class UsageStore {
     private(set) var lastRefresh: Date?
     private let adapters: [any ProviderAdapter]
     private var refreshTask: Task<Void, Never>?
+    private var refreshRequested = false
     private var activityTask: Task<Void, Never>?
     private let activityDetector: AgentActivityDetector
 
@@ -25,8 +26,10 @@ final class UsageStore {
     }
 
     var detectedStatuses: [ProviderStatus] {
+        // Installed providers remain visible even when they do not expose a
+        // quota endpoint (for example, the OpenCode CLI).
         statuses.filter {
-            $0.detected && ($0.primary != nil || $0.secondary != nil) && AppSettings.isProviderEnabled($0.provider)
+            $0.detected && AppSettings.isProviderEnabled($0.provider)
         }
     }
 
@@ -49,7 +52,11 @@ final class UsageStore {
 
     func refresh() {
         refreshActivity()
-        guard !isRefreshing else { return }
+        guard !isRefreshing else {
+            refreshRequested = true
+            return
+        }
+        refreshRequested = false
         isRefreshing = true
         refreshTask = Task { [adapters] in
             let fetched = await Task.detached(priority: .utility) {
@@ -90,6 +97,9 @@ final class UsageStore {
             Self.saveCachedStatuses(self.statuses)
             self.lastRefresh = Date()
             self.isRefreshing = false
+            if self.refreshRequested {
+                self.refresh()
+            }
         }
     }
 

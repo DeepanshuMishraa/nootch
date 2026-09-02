@@ -1047,7 +1047,7 @@ struct NotchView: View {
                     onInteract: { interaction.pinnedOpen = true }
                 )
                 .scaleEffect(0.9)
-                .offset(x: 40, y: 10)
+                .offset(x: 50, y: 6)
             }
         }
     }
@@ -1450,6 +1450,11 @@ struct ProviderRailItem: View {
         }
     }
 
+    private var percentageLabel: String {
+        guard status.primary != nil else { return "—" }
+        return "\(Int(displayedPercent.rounded()))%"
+    }
+
     private var gaugeColor: Color {
         status.primary?.tierColor ?? Color(red: 0.18, green: 0.85, blue: 0.45)
     }
@@ -1494,7 +1499,7 @@ struct ProviderRailItem: View {
             .animation(.spring(response: 0.28, dampingFraction: 0.8), value: isHovered)
 
             // Percentage Text
-            Text("\(Int(displayedPercent.rounded()))%")
+            Text(percentageLabel)
                 .font(.custom("Spline Sans Mono", size: 13).weight(.semibold))
                 .foregroundStyle(.white)
                 .frame(width: 52, height: 18, alignment: .center)
