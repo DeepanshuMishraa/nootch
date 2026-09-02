@@ -19,9 +19,9 @@ struct UsageWindow: Codable, Sendable, Equatable {
     }
 
     var tierColor: Color {
-        if remainingPercent < 40 {
+        if remainingPercent <= 25 {
             return Color(red: 1.0, green: 0.32, blue: 0.15) // Low remaining: Vibrant coral/orange-red #FF5226
-        } else if remainingPercent < 70 {
+        } else if remainingPercent <= 50 {
             return Color(red: 0.82, green: 0.94, blue: 0.15) // Moderate remaining: Vibrant lime/yellow #D1F026
         } else {
             return Color(red: 0.18, green: 0.85, blue: 0.45) // Healthy remaining: Vibrant emerald green #2ED973
@@ -29,13 +29,13 @@ struct UsageWindow: Codable, Sendable, Equatable {
     }
 
     var gradient: LinearGradient {
-        if remainingPercent < 40 {
+        if remainingPercent <= 25 {
             return LinearGradient(
                 colors: [Color(red: 1.0, green: 0.42, blue: 0.20), Color(red: 1.0, green: 0.22, blue: 0.10)],
                 startPoint: .leading,
                 endPoint: .trailing
             )
-        } else if remainingPercent < 70 {
+        } else if remainingPercent <= 50 {
             return LinearGradient(
                 colors: [Color(red: 0.88, green: 0.98, blue: 0.22), Color(red: 0.74, green: 0.88, blue: 0.12)],
                 startPoint: .leading,
