@@ -493,7 +493,11 @@ final class NotchPanel: NSPanel {
         backgroundColor = .clear
         hasShadow = false
         level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        // Keep the overlay in the Space where it was created. In particular, do
+        // not use `.canJoinAllSpaces` or `.fullScreenAuxiliary`: either behavior
+        // would carry the panel into a fullscreen app's Space, which would make
+        // the always-visible mode appear over fullscreen video and windows.
+        collectionBehavior = [.stationary, .ignoresCycle]
         hidesOnDeactivate = false
     }
 
