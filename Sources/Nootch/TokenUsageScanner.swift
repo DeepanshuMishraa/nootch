@@ -173,7 +173,7 @@ enum TokenUsageScanner {
     }
 
     private static func diskCacheKey(for key: SummaryCacheKey) -> String {
-        "UsageNotch.tokenSummary.\(key.kind).\(Int(key.today.timeIntervalSince1970))"
+        "nootch.tokenSummary.\(key.kind).\(Int(key.today.timeIntervalSince1970))"
     }
 
     /// Returns the cached summary when the fingerprint matches, consulting the

@@ -2,15 +2,15 @@
 import PackageDescription
 
 let package = Package(
-    name: "AgentNotch",
+    name: "nootch",
     platforms: [.macOS(.v15)],
     products: [
-        .executable(name: "AgentNotch", targets: ["AgentNotch"]),
+        .executable(name: "nootch", targets: ["Nootch"]),
     ],
     targets: [
         .executableTarget(
-            name: "AgentNotch",
+            name: "Nootch",
             resources: [.process("Resources")]),
-        .testTarget(name: "AgentNotchTests", dependencies: ["AgentNotch"]),
+        .testTarget(name: "NootchTests", dependencies: ["Nootch"]),
     ]
 )

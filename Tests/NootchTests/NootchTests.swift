@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import AgentNotch
+@testable import Nootch
 
 @Test func remainingPercentageIsDerivedFromUsedPercentage() {
     let window = UsageWindow(usedPercent: 73)

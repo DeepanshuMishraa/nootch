@@ -3,12 +3,12 @@ import ServiceManagement
 import SwiftUI
 
 extension Notification.Name {
-    static let openAgentNotchSettings = Notification.Name("AgentNotch.openSettings")
-    static let settingsDidChange = Notification.Name("AgentNotch.settingsDidChange")
+    static let openNootchSettings = Notification.Name("Nootch.openSettings")
+    static let settingsDidChange = Notification.Name("Nootch.settingsDidChange")
 }
 
 @main
-struct AgentNotchApp: App {
+struct NootchApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
@@ -37,14 +37,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppSettings.configure()
         applyDockVisibility()
-        if let iconURL = Bundle.module.url(forResource: "AgentNotchIcon", withExtension: "png"),
+        if let iconURL = Bundle.module.url(forResource: "NootchIcon", withExtension: "png"),
            let icon = NSImage(contentsOf: iconURL) {
             icon.isTemplate = false
             NSApp.applicationIconImage = icon
         }
 
         settingsNotificationObserver = NotificationCenter.default.addObserver(
-            forName: .openAgentNotchSettings,
+            forName: .openNootchSettings,
             object: nil,
             queue: .main
         ) { [weak self] _ in
@@ -131,7 +131,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "Agent Notch"
+        window.title = "nootch"
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .visible
         window.toolbarStyle = .unified
@@ -651,14 +651,14 @@ struct SettingsView: View {
             }
             Button("Later", role: .cancel) {}
         } message: {
-            Text("Restart Agent Notch to apply the selected window style.")
+            Text("Restart nootch to apply the selected window style.")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func updateLaunchAtLogin(_ enabled: Bool) {
         guard Bundle.main.bundleURL.pathExtension == "app" else {
-            launchAtLoginError = "Launch at login is available after installing Agent Notch as an app."
+            launchAtLoginError = "Launch at login is available after installing nootch as an app."
             return
         }
         do {

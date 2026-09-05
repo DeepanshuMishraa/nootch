@@ -284,19 +284,41 @@ enum WindowStyle: String, CaseIterable, Identifiable, Sendable {
 }
 
 enum AppSettings {
-    static let notchPositionKey = "UsageNotch.notchPosition"
-    static let animationDurationKey = "UsageNotch.animationDuration"
-    static let activityAnimationDurationKey = "UsageNotch.activityAnimationDuration"
-    static let overlayDisplayModeKey = "UsageNotch.overlayDisplayMode"
-    static let usageDisplayModeKey = "UsageNotch.usageDisplayMode"
-    static let showInDockKey = "UsageNotch.showInDock"
-    static let launchAtLoginKey = "UsageNotch.launchAtLogin"
-    static let providerIconShapeKey = "UsageNotch.providerIconShape"
-    static let themeColorKey = "UsageNotch.themeColor"
-    static let windowStyleKey = "UsageNotch.windowStyle"
+    static let notchPositionKey = "nootch.notchPosition"
+    static let animationDurationKey = "nootch.animationDuration"
+    static let activityAnimationDurationKey = "nootch.activityAnimationDuration"
+    static let overlayDisplayModeKey = "nootch.overlayDisplayMode"
+    static let usageDisplayModeKey = "nootch.usageDisplayMode"
+    static let showInDockKey = "nootch.showInDock"
+    static let launchAtLoginKey = "nootch.launchAtLogin"
+    static let providerIconShapeKey = "nootch.providerIconShape"
+    static let themeColorKey = "nootch.themeColor"
+    static let windowStyleKey = "nootch.windowStyle"
     @MainActor static var activeWindowStyle: WindowStyle = .liquidGlass
 
+    // Keep legacy names only for importing preferences from earlier releases.
+    static func migrateLegacyPreferences(
+        defaults: UserDefaults = .standard,
+        legacyDomainNames: [String] = ["com.deepanshumishraa.agentnotch", "AgentNotch"]
+    ) {
+        let migrationKey = "nootch.preferencesMigrated.v1"
+        guard !defaults.bool(forKey: migrationKey) else { return }
+        let domains = [defaults.dictionaryRepresentation()] + legacyDomainNames.compactMap {
+            defaults.persistentDomain(forName: $0)
+        }
+        for domain in domains {
+            for (key, value) in domain where key.hasPrefix("UsageNotch.") {
+                let newKey = "nootch." + key.dropFirst("UsageNotch.".count)
+                if defaults.object(forKey: newKey) == nil {
+                    defaults.set(value, forKey: newKey)
+                }
+            }
+        }
+        defaults.set(true, forKey: migrationKey)
+    }
+
     @MainActor static func configure() {
+        migrateLegacyPreferences()
         let saved = WindowStyle(rawValue: UserDefaults.standard.string(forKey: windowStyleKey) ?? "") ?? .liquidGlass
         if #available(macOS 26.0, *) {
             activeWindowStyle = saved
@@ -305,7 +327,7 @@ enum AppSettings {
         }
     }
 
-    static let providerEnabledPrefix = "UsageNotch.providerEnabled."
+    static let providerEnabledPrefix = "nootch.providerEnabled."
 
     static var currentTheme: ThemeColor {
         ThemeColor(rawValue: UserDefaults.standard.string(forKey: themeColorKey) ?? "") ?? .red

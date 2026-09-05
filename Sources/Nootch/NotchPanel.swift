@@ -1284,7 +1284,7 @@ struct SettingsCornerButton: View {
     }
 
     private func openSettings() {
-        NotificationCenter.default.post(name: .openAgentNotchSettings, object: nil)
+        NotificationCenter.default.post(name: .openNootchSettings, object: nil)
     }
 }
 
@@ -1296,7 +1296,7 @@ struct SettingsInlineButton: View {
     var body: some View {
         Button {
             onInteract()
-            NotificationCenter.default.post(name: .openAgentNotchSettings, object: nil)
+            NotificationCenter.default.post(name: .openNootchSettings, object: nil)
         } label: {
             ZStack {
                 Circle()

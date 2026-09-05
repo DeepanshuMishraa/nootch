@@ -4,7 +4,7 @@ import Observation
 @MainActor
 @Observable
 final class UsageStore {
-    private static let cacheKey = "UsageNotch.providerStatusCache.v1"
+    private static let cacheKey = "nootch.providerStatusCache.v1"
 
     private(set) var statuses: [ProviderStatus] = []
     private(set) var isRefreshing = false

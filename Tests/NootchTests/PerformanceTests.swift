@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
-@testable import AgentNotch
+@testable import Nootch
 
 // Opt-in local probes. Never launch AppDelegate, read credentials, or fetch live usage.
 struct PerformanceSample {
@@ -35,7 +35,7 @@ struct PerformanceSample {
 }
 
 @Test func profileSyntheticHistory() throws {
-    guard ProcessInfo.processInfo.environment["AGENT_NOTCH_PROFILE"] == "scan" else { return }
+    guard ProcessInfo.processInfo.environment["NOOTCH_PROFILE"] == "scan" else { return }
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: root) }
@@ -53,13 +53,13 @@ struct PerformanceSample {
 }
 
 @Test @MainActor func profileSyntheticRail() async throws {
-    guard let mode = ProcessInfo.processInfo.environment["AGENT_NOTCH_PROFILE"], mode == "rail" else { return }
+    guard let mode = ProcessInfo.processInfo.environment["NOOTCH_PROFILE"], mode == "rail" else { return }
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
     let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 100, height: 480), styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     defer { window.close() }
-    let status = ProviderStatus(provider: .claude, detected: true, source: "Synthetic", primary: UsageWindow(usedPercent: 20), secondary: nil, error: nil, updatedAt: nil, activity: ProcessInfo.processInfo.environment["AGENT_NOTCH_ACTIVITY"] == "idle" ? .idle : .working)
+    let status = ProviderStatus(provider: .claude, detected: true, source: "Synthetic", primary: UsageWindow(usedPercent: 20), secondary: nil, error: nil, updatedAt: nil, activity: ProcessInfo.processInfo.environment["NOOTCH_ACTIVITY"] == "idle" ? .idle : .working)
     window.contentView = NSHostingView(rootView: VStack {
         ForEach(0..<4) { _ in ProviderRailItem(status: status, isHovered: false).frame(width: 72, height: 76) }
     })

@@ -21,7 +21,7 @@ struct CodexAdapter: ProviderAdapter {
         var request = URLRequest(url: url)
         request.timeoutInterval = 20
         request.setValue("Bearer \(credentials.accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("AgentNotch", forHTTPHeaderField: "User-Agent")
+        request.setValue("nootch", forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let accountID = credentials.accountID { request.setValue(accountID, forHTTPHeaderField: "ChatGPT-Account-Id") }
         do {
@@ -633,10 +633,20 @@ private enum ProviderSecret {
         if let value = environmentNames.lazy.compactMap({ environment[$0] }).map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }).first(where: { !$0.isEmpty }) {
             return value
         }
+        // Existing credentials remain readable without rewriting Keychain items.
+        for service in ["nootch", "AgentNotch"] {
+            if let value = keychainValue(service: service, account: keychainAccount) {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private static func keychainValue(service: String, account: String) -> String? {
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
-            kSecAttrService: "AgentNotch",
-            kSecAttrAccount: keychainAccount,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
             kSecReturnData: true,
             kSecMatchLimit: kSecMatchLimitOne,
         ]
