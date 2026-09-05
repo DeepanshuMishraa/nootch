@@ -544,6 +544,36 @@ final class NotchInteractionState {
     var displayMode: OverlayDisplayMode = AppSettings.overlayDisplayMode
 }
 
+/// Coalesces the system-wide mouseMoved firehose before it can allocate a
+/// Task + MainActor hop per event (60-120Hz). Thread-safe: monitor callbacks
+/// consult it synchronously on the delivery thread.
+final class MouseMoveThrottle: @unchecked Sendable {
+    /// Minimum time between handled events (~20Hz is plenty for hover).
+    static let minimumInterval: TimeInterval = 0.05
+    /// Minimum cursor travel worth a re-evaluation.
+    static let minimumDistance: CGFloat = 2
+
+    private let lock = NSLock()
+    private var lastHandled = Date.distantPast
+    private var lastLocation = NSPoint.zero
+
+    func shouldHandle(_ event: NSEvent) -> Bool {
+        shouldHandle(at: NSEvent.mouseLocation, now: Date())
+    }
+
+    func shouldHandle(at location: NSPoint, now: Date) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard now.timeIntervalSince(lastHandled) >= Self.minimumInterval else { return false }
+        let dx = location.x - lastLocation.x
+        let dy = location.y - lastLocation.y
+        guard (dx * dx + dy * dy) >= (Self.minimumDistance * Self.minimumDistance) else { return false }
+        lastHandled = now
+        lastLocation = location
+        return true
+    }
+}
+
 @MainActor
 final class NotchPanelController {
     let panel = NotchPanel()
@@ -551,7 +581,7 @@ final class NotchPanelController {
     private var globalClickMonitor: Any?
     private var localClickMonitor: Any?
     private var globalMouseMonitor: Any?
-    private var localMouseMonitor: Any?
+    private let mouseThrottle = MouseMoveThrottle()
     private var autoCollapseTask: Task<Void, Never>?
 
     func settingsDidChange() {
@@ -599,9 +629,6 @@ final class NotchPanelController {
         if let globalMouseMonitor {
             NSEvent.removeMonitor(globalMouseMonitor)
         }
-        if let localMouseMonitor {
-            NSEvent.removeMonitor(localMouseMonitor)
-        }
 
         let eventMask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
         globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: eventMask) { [weak self] _ in
@@ -622,22 +649,29 @@ final class NotchPanelController {
 
         let mouseMask: NSEvent.EventTypeMask = [.mouseMoved]
         globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: mouseMask) { [weak self] event in
+            // Throttle on the monitor thread before allocating a Task + MainActor
+            // hop: mouseMoved fires system-wide at 60-120Hz and each hop was
+            // queueing behind the MainActor serial queue.
+            guard let self, self.mouseThrottle.shouldHandle(event) else { return }
             Task { @MainActor [weak self] in
                 self?.handleMouseMove(event)
             }
-        }
-        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: mouseMask) { [weak self] event in
-            Task { @MainActor [weak self] in
-                self?.handleMouseMove(event)
-            }
-            return event
         }
     }
 
     private func handleMouseMove(_ event: NSEvent) {
+        // Hidden overlay must not pay for hover tracking at all.
+        guard interaction.displayMode != .hidden else { return }
         let location = event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
         let frame = panel.frame
-        interaction.panelFrame = frame
+        // Assigning panelFrame wakes every SwiftUI observer, so only publish
+        // material changes instead of once per mouse event.
+        if abs(interaction.panelFrame.origin.x - frame.origin.x) > 0.5
+            || abs(interaction.panelFrame.origin.y - frame.origin.y) > 0.5
+            || abs(interaction.panelFrame.size.width - frame.size.width) > 0.5
+            || abs(interaction.panelFrame.size.height - frame.size.height) > 0.5 {
+            interaction.panelFrame = frame
+        }
 
         let isInside = interactionRegion.contains(location)
         guard isInside else {
@@ -701,10 +735,13 @@ final class NotchPanelController {
                 }
             }
 
-            // Rail hover corridor, anchored to the selected edge.
+            // Keep the activation corridor close to the visible rail. The rail is
+            // 72pt wide when expanded, so this gives a small, forgiving target
+            // without capturing normal work beside the display edge.
+            let hoverCorridor: CGFloat = 72
             let isOverRail = interaction.position == .leftCenter
-                ? location.x <= (frame.minX + 110)
-                : location.x >= (frame.maxX - 110)
+                ? location.x <= (frame.minX + hoverCorridor)
+                : location.x >= (frame.maxX - hoverCorridor)
             if isOverRail {
                 guard count > 0 else { return }
 
@@ -787,10 +824,11 @@ final class NotchPanelController {
             )
         }
 
+        let triggerWidth: CGFloat = 96
         let triggerRegion = NSRect(
-            x: interaction.position == .leftCenter ? frame.minX : frame.maxX - 153,
+            x: interaction.position == .leftCenter ? frame.minX : frame.maxX - triggerWidth,
             y: frame.maxY - 573,
-            width: 153,
+            width: triggerWidth,
             height: 573)
         guard interaction.isHovered || interaction.pinnedOpen else {
             return triggerRegion
@@ -994,7 +1032,7 @@ struct NotchView: View {
             if isExpanded {
                 HStack(spacing: HorizontalBarLayout.itemSpacing) {
                     ForEach(Array(items.enumerated()), id: \.element.id) { index, status in
-                        ProviderRailItem(status: status, isHovered: interaction.hoveredIndex == index)
+                        ProviderRailItem(status: status, isHovered: interaction.hoveredIndex == index, animationsEnabled: isExpanded)
                             .frame(width: HorizontalBarLayout.itemWidth, height: 58)
                             .contentShape(Rectangle())
                             .onHover { hovering in
@@ -1089,31 +1127,37 @@ struct NotchView: View {
 
         return ZStack(alignment: .topTrailing) {
             VStack(spacing: 12) {
-                ForEach(Array(items.enumerated()), id: \.element.id) { index, status in
-                    ProviderRailItem(
-                        status: status,
-                        isHovered: interaction.hoveredIndex == index
-                    )
-                    .frame(width: 72, height: 76)
-                    .contentShape(Rectangle())
-                    .onHover { hovering in
-                        guard hovering else { return }
-                        interaction.hoveredIndex = index
-                        interaction.isDetailVisible = true
-                        interaction.isHovered = true
-                    }
-                    .onTapGesture {
-                        withAnimation(.spring(response: 0.18, dampingFraction: 0.88)) {
-                            interaction.pinnedOpen.toggle()
+                // When collapsed the rail is invisible (opacity 0): do not mount
+                // the items at all so their infinite CA/SwiftUI animations stop
+                // instead of rendering 24/7 behind an opacity-0 container.
+                if isExpanded {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, status in
+                        ProviderRailItem(
+                            status: status,
+                            isHovered: interaction.hoveredIndex == index,
+                            animationsEnabled: isExpanded
+                        )
+                        .frame(width: 72, height: 76)
+                        .contentShape(Rectangle())
+                        .onHover { hovering in
+                            guard hovering else { return }
+                            interaction.hoveredIndex = index
+                            interaction.isDetailVisible = true
+                            interaction.isHovered = true
+                        }
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.18, dampingFraction: 0.88)) {
+                                interaction.pinnedOpen.toggle()
+                            }
                         }
                     }
-                }
 
-                if items.isEmpty {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 20, weight: .medium))
-                        .foregroundStyle(.white)
-                        .frame(height: 50)
+                    if items.isEmpty {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 20, weight: .medium))
+                            .foregroundStyle(.white)
+                            .frame(height: 50)
+                    }
                 }
             }
             .opacity(isExpanded ? 1.0 : 0.0)
@@ -1282,93 +1326,119 @@ struct SettingsInlineButton: View {
 /// High-precision Swiss chronograph aperture perimeter tracer that glides along
 /// the exact outer path of any selected shape (Circle, Squircle, Rounded, Square)
 /// without rotating the shape geometry across the center.
-struct PrecisionChronographAperture: View {
+struct PrecisionChronographAperture: NSViewRepresentable {
     var shape: ProviderIconShape = .circle
+    @AppStorage(AppSettings.activityAnimationDurationKey) private var duration = 1.6
 
-    var body: some View {
-        TimelineView(.animation) { timeline in
-            let time = timeline.date.timeIntervalSinceReferenceDate
-            let cycleDuration = AppSettings.activityAnimationDuration
-            let progress = (time.truncatingRemainder(dividingBy: cycleDuration)) / cycleDuration
-
-            ZStack {
-                // Outer Precision Bezel Hairline Track in chosen shape
-                strokeBezel(Color.white.opacity(0.20), lineWidth: 1.2)
-
-                // Perimeter laser beam traveling around the chosen shape's edge
-                ShapePerimeterTracer(
-                    shape: shape,
-                    progress: progress,
-                    strokeStyle: StrokeStyle(lineWidth: 3.4, lineCap: .round)
-                )
-            }
-        }
+    func makeNSView(context: Context) -> PerimeterAnimationView {
+        PerimeterAnimationView()
     }
 
-    @ViewBuilder
-    private func strokeBezel(_ color: Color, lineWidth: CGFloat) -> some View {
-        switch shape {
-        case .circle:
-            Circle().stroke(color, lineWidth: lineWidth)
-        case .squircle:
-            RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(color, lineWidth: lineWidth)
-        case .rounded:
-            RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(color, lineWidth: lineWidth)
-        case .square:
-            RoundedRectangle(cornerRadius: 3, style: .continuous).stroke(color, lineWidth: lineWidth)
-        }
+    func updateNSView(_ view: PerimeterAnimationView, context: Context) {
+        view.configure(shape: shape, duration: duration)
+    }
+
+    static func dismantleNSView(_ view: PerimeterAnimationView, coordinator: ()) {
+        view.stop()
     }
 }
 
-/// Continuous perimeter tracer traveling along any geometric shape path
-struct ShapePerimeterTracer: View {
-    let shape: ProviderIconShape
-    let progress: Double // 0.0 ... 1.0
-    let length: Double = 0.28 // fraction of perimeter
-    let strokeStyle: StrokeStyle
+/// Core Animation interpolates the same trimmed outline without SwiftUI updates
+/// on every frame. The second beam carries the segment across the path's seam.
+final class PerimeterAnimationView: NSView {
+    private let bezel = CAShapeLayer()
+    private let beam = CAShapeLayer()
+    private let wrappedBeam = CAShapeLayer()
+    private var shape: ProviderIconShape = .circle
+    private var duration: Double = 1.6
+    private var renderedBounds: CGRect?
 
-    var body: some View {
-        ZStack {
-            // Primary segment
-            let start1 = progress
-            let end1 = min(1.0, progress + length)
-            if start1 < 1.0 {
-                trimmedShape(from: CGFloat(start1), to: CGFloat(end1))
-            }
+    override var isFlipped: Bool { true }
 
-            // Wrap-around segment past the 1.0 boundary
-            if progress + length > 1.0 {
-                let end2 = (progress + length) - 1.0
-                trimmedShape(from: 0.0, to: CGFloat(min(1.0, end2)))
-            }
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        for outline in [bezel, beam, wrappedBeam] {
+            outline.fillColor = nil
+            outline.strokeColor = NSColor.white.cgColor
+            outline.lineWidth = 3.4
+            outline.lineCap = .round
+            layer?.addSublayer(outline)
         }
+        bezel.strokeColor = NSColor.white.withAlphaComponent(0.20).cgColor
+        bezel.lineWidth = 1.2
+        beam.strokeEnd = 0.28
+        wrappedBeam.strokeEnd = 0
     }
 
-    @ViewBuilder
-    private func trimmedShape(from start: CGFloat, to end: CGFloat) -> some View {
-        let beamColor = Color.white
+    required init?(coder: NSCoder) { nil }
 
+    func configure(shape: ProviderIconShape, duration: Double) {
+        let safeDuration = duration.isFinite && duration > 0 ? duration : 1.6
+        if self.shape != shape {
+            self.shape = shape
+            renderedBounds = nil
+            needsLayout = true
+        }
+        if self.duration != safeDuration {
+            self.duration = safeDuration
+            stop()
+        }
+        startIfNeeded()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { stop() } else { startIfNeeded() }
+    }
+
+    override func layout() {
+        super.layout()
+        guard renderedBounds != bounds else { return }
+        renderedBounds = bounds
+        let path: Path
         switch shape {
-        case .circle:
-            Circle()
-                .trim(from: start, to: end)
-                .stroke(beamColor, style: strokeStyle)
-                .rotationEffect(.degrees(-90))
-        case .squircle:
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .trim(from: start, to: end)
-                .stroke(beamColor, style: strokeStyle)
-                .rotationEffect(.degrees(-90))
-        case .rounded:
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .trim(from: start, to: end)
-                .stroke(beamColor, style: strokeStyle)
-                .rotationEffect(.degrees(-90))
-        case .square:
-            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .trim(from: start, to: end)
-                .stroke(beamColor, style: strokeStyle)
-                .rotationEffect(.degrees(-90))
+        case .circle: path = Circle().path(in: bounds)
+        case .squircle: path = RoundedRectangle(cornerRadius: 12, style: .continuous).path(in: bounds)
+        case .rounded: path = RoundedRectangle(cornerRadius: 7, style: .continuous).path(in: bounds)
+        case .square: path = RoundedRectangle(cornerRadius: 3, style: .continuous).path(in: bounds)
+        }
+        let rotation = CGAffineTransform(translationX: bounds.midX, y: bounds.midY)
+            .rotated(by: -.pi / 2)
+            .translatedBy(x: -bounds.midX, y: -bounds.midY)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        bezel.path = path.cgPath
+        beam.path = path.applying(rotation).cgPath
+        wrappedBeam.path = beam.path
+        CATransaction.commit()
+    }
+
+    func stop() {
+        beam.removeAllAnimations()
+        wrappedBeam.removeAllAnimations()
+    }
+
+    private func startIfNeeded() {
+        guard window != nil, beam.animation(forKey: "travel") == nil else { return }
+        let start = CAKeyframeAnimation(keyPath: "strokeStart")
+        start.values = [0, 1]
+        start.keyTimes = [0, 1]
+        let end = CAKeyframeAnimation(keyPath: "strokeEnd")
+        end.values = [0.28, 1, 1]
+        end.keyTimes = [0, 0.72, 1]
+        let wrap = CAKeyframeAnimation(keyPath: "strokeEnd")
+        wrap.values = [0, 0, 0.28]
+        wrap.keyTimes = [0, 0.72, 1]
+        let begin = CACurrentMediaTime()
+        for (target, animations) in [(beam, [start, end]), (wrappedBeam, [wrap])] {
+            for animation in animations { animation.duration = duration }
+            let group = CAAnimationGroup()
+            group.animations = animations
+            group.duration = duration
+            group.repeatCount = .infinity
+            group.beginTime = begin
+            target.add(group, forKey: "travel")
         }
     }
 }
@@ -1436,6 +1506,7 @@ struct AgentNeedsAttentionBeacon: View {
 struct ProviderRailItem: View {
     let status: ProviderStatus
     let isHovered: Bool
+    var animationsEnabled = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(AppSettings.providerIconShapeKey) private var iconShapeRaw = ProviderIconShape.circle.rawValue
 
@@ -1477,13 +1548,13 @@ struct ProviderRailItem: View {
 
                 // When RUNNING: Precision Chronograph Aperture
                 if status.activity.isWorking {
-                    if reduceMotion {
+                    if reduceMotion || !animationsEnabled {
                         chronographFallbackView
                     } else {
                         PrecisionChronographAperture(shape: currentShape)
                     }
                 } else if status.activity.needsAttention {
-                    if reduceMotion {
+                    if reduceMotion || !animationsEnabled {
                         Circle()
                             .fill(Color(red: 1.0, green: 0.70, blue: 0.12))
                             .frame(width: 8, height: 8)

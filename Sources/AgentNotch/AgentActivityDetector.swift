@@ -55,6 +55,8 @@ struct AgentActivityDetector: Sendable {
         if command.contains("claude.app") || ["claude", "claude-code"].contains(name) { return .claude }
         if command.contains("codex.app") || ["codex", "pi"].contains(name) { return .codex }
         if ["opencode", "open-code"].contains(name) { return .openCode }
+        if ["grok", "grok-cli"].contains(name) { return .grok }
+        if ["zai", "zhipu"].contains(name) { return .zai }
         if ["copilot", "github-copilot", "ghcs"].contains(name) { return .copilot }
         if ["agy", "antigravity"].contains(name) { return .antigravity }
         if name == "cline" { return .clinePass }

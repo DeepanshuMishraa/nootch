@@ -24,6 +24,11 @@ Agent Notch implements each provider integration directly. It has no CodexBar pa
 - Antigravity: Antigravity OAuth credentials and Google's Cloud Code quota API.
 - Cursor: Cursor.app auth with cached/browser-session fallback and Cursor's usage API.
 - Copilot: GitHub OAuth from `gh auth token` and GitHub's Copilot internal usage API.
+- OpenCode: read-only usage from `~/.local/share/opencode/auth.json` or `OPENCODE_API_KEY`.
+- Grok: read-only billing from `~/.grok/auth.json` or `GROK_API_KEY`.
+- Z.ai: read-only coding-plan quota from `ZAI_API_KEY` (use `ZAI_REGION=china` for BigModel).
+- xAI: read-only prepaid balance from `XAI_MANAGEMENT_KEY` and `XAI_TEAM_ID`; optionally set `XAI_MONTHLY_BUDGET` to turn the balance into a usage percentage.
+- Cursor: read-only `state.vscdb` access with the current and legacy usage endpoints.
 
 The UI keeps the last successful snapshot during later refresh failures and never invents usage values.
 

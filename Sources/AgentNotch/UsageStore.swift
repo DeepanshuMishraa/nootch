@@ -33,18 +33,34 @@ final class UsageStore {
         }
     }
 
+    /// True while any visible provider is actively working or needs attention.
+    /// Used to poll activity faster only when something is actually happening.
+    var hasActiveActivity: Bool {
+        statuses.contains { $0.activity.isWorking || $0.activity.needsAttention }
+    }
+
+    /// Pure merge of an activity snapshot into existing statuses. Returns nil
+    /// when nothing changed so callers can skip publishing (and the SwiftUI
+    /// re-render that comes with it).
+    static nonisolated func mergedActivity(
+        _ statuses: [ProviderStatus],
+        with snapshot: AgentActivitySnapshot
+    ) -> [ProviderStatus]? {
+        guard snapshot.isReliable else { return nil }
+        let merged = statuses.map { status in
+            status.withActivity(snapshot.activityByProvider[status.provider] ?? .done)
+        }
+        return merged == statuses ? nil : merged
+    }
+
     func refreshActivity() {
         guard activityTask == nil else { return }
         let detector = activityDetector
         activityTask = Task { @MainActor in
             let snapshot = await Task.detached(priority: .utility) { detector.snapshot() }.value
             guard !Task.isCancelled else { return }
-            guard snapshot.isReliable else {
-                self.activityTask = nil
-                return
-            }
-            self.statuses = self.statuses.map { status in
-                status.withActivity(snapshot.activityByProvider[status.provider] ?? .done)
+            if let merged = Self.mergedActivity(self.statuses, with: snapshot) {
+                self.statuses = merged
             }
             self.activityTask = nil
         }
@@ -71,7 +87,7 @@ final class UsageStore {
             }.value
             guard !Task.isCancelled else { return }
             let previousByProvider = Dictionary(uniqueKeysWithValues: self.statuses.map { ($0.provider, $0) })
-            self.statuses = fetched.map { fresh in
+            let merged = fetched.map { fresh in
                 let status: ProviderStatus
                 if fresh.error != nil,
                    fresh.primary == nil,
@@ -94,6 +110,16 @@ final class UsageStore {
                 }
                 return status.withActivity(previousByProvider[fresh.provider]?.activity ?? status.activity)
             }
+            // Skip publishing when nothing changed: every assignment wakes all
+            // SwiftUI observers and re-renders the overlay.
+            guard merged != self.statuses else {
+                self.isRefreshing = false
+                if self.refreshRequested {
+                    self.refresh()
+                }
+                return
+            }
+            self.statuses = merged
             Self.saveCachedStatuses(self.statuses)
             self.lastRefresh = Date()
             self.isRefreshing = false

@@ -86,8 +86,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         activityTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
+                // Poll fast only while an agent is visibly active; idle polling
+                // at 5s keeps the /bin/ps + merge cost near zero.
+                let active = self?.store?.hasActiveActivity ?? false
                 do {
-                    try await Task.sleep(for: .seconds(2))
+                    try await Task.sleep(for: .seconds(active ? 2 : 5))
                 } catch {
                     return
                 }
@@ -95,7 +98,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.store?.refreshActivity()
             }
         }
-        registerLaunchAtLogin()
+        syncLaunchAtLogin()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -230,10 +233,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return container
     }
 
-    private func registerLaunchAtLogin() {
+    private func syncLaunchAtLogin() {
         guard Bundle.main.bundleURL.pathExtension == "app" else { return }
-        guard SMAppService.mainApp.status == .notRegistered else { return }
-        try? SMAppService.mainApp.register()
+        let enabled = UserDefaults.standard.object(forKey: AppSettings.launchAtLoginKey) as? Bool ?? true
+        do {
+            if enabled {
+                guard SMAppService.mainApp.status == .notRegistered else { return }
+                try SMAppService.mainApp.register()
+            } else if SMAppService.mainApp.status != .notRegistered {
+                try SMAppService.mainApp.unregister()
+            }
+        } catch {
+            NSLog("Could not update launch-at-login: %@", error.localizedDescription)
+        }
     }
 }
 
@@ -256,8 +268,10 @@ struct SettingsView: View {
     @AppStorage(AppSettings.overlayDisplayModeKey) private var displayModeRaw = OverlayDisplayMode.hover.rawValue
     @AppStorage(AppSettings.usageDisplayModeKey) private var usageDisplayModeRaw = UsageDisplayMode.remaining.rawValue
     @AppStorage(AppSettings.showInDockKey) private var showInDock = false
+    @AppStorage(AppSettings.launchAtLoginKey) private var launchAtLogin = true
     @AppStorage(AppSettings.providerIconShapeKey) private var iconShapeRaw = ProviderIconShape.circle.rawValue
     @State private var restartRequired = false
+    @State private var launchAtLoginError: String?
 
     private var currentTheme: ThemeColor {
         ThemeColor(rawValue: themeRaw) ?? .red
@@ -319,6 +333,23 @@ struct SettingsView: View {
                             .onChange(of: showInDock) {
                                 NSApp.setActivationPolicy(showInDock ? .regular : .accessory)
                             }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+
+                    Divider()
+                        .padding(.horizontal, 14)
+
+                    HStack {
+                        Text("Launch at login")
+                            .font(.system(size: 13))
+                        Spacer()
+                        Toggle("", isOn: Binding(
+                            get: { launchAtLogin },
+                            set: { updateLaunchAtLogin($0) }
+                        ))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
@@ -606,6 +637,14 @@ struct SettingsView: View {
         .onChange(of: windowStyleRaw) {
             restartRequired = true
         }
+        .alert("Launch at login unavailable", isPresented: Binding(
+            get: { launchAtLoginError != nil },
+            set: { if !$0 { launchAtLoginError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(launchAtLoginError ?? "macOS could not update the login item.")
+        }
         .alert("Restart required", isPresented: $restartRequired) {
             Button("Restart", role: .destructive) {
                 restartApplication()
@@ -615,6 +654,24 @@ struct SettingsView: View {
             Text("Restart Agent Notch to apply the selected window style.")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func updateLaunchAtLogin(_ enabled: Bool) {
+        guard Bundle.main.bundleURL.pathExtension == "app" else {
+            launchAtLoginError = "Launch at login is available after installing Agent Notch as an app."
+            return
+        }
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+            launchAtLogin = enabled
+            postSettingsChange()
+        } catch {
+            launchAtLoginError = error.localizedDescription
+        }
     }
 
     private func postSettingsChange() {

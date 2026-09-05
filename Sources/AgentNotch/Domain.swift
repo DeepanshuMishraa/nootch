@@ -150,15 +150,15 @@ enum ProviderIconShape: String, CaseIterable, Identifiable, Sendable {
 }
 
 enum ProviderID: String, Codable, CaseIterable, Identifiable, Sendable {
-    case codex, claude, openCode, openCodeGo, chatGPT, cursor, copilot, antigravity, xai, grok, groq, clinePass
+    case codex, claude, openCode, openCodeGo, chatGPT, cursor, copilot, antigravity, xai, grok, groq, zai, clinePass
 
     static let allCases: [Self] = [
         .codex, .claude, .openCode, .chatGPT, .cursor, .copilot,
-        .antigravity, .xai, .grok, .groq, .clinePass
+        .antigravity, .xai, .grok, .groq, .zai, .clinePass
     ]
 
     static let supported: [Self] = [
-        .codex, .claude, .openCode, .cursor, .copilot, .antigravity, .clinePass
+        .codex, .claude, .openCode, .zai, .grok, .xai, .cursor, .copilot, .antigravity, .clinePass
     ]
 
     var id: Self { self }
@@ -175,6 +175,7 @@ enum ProviderID: String, Codable, CaseIterable, Identifiable, Sendable {
         case .xai: "xAI"
         case .grok: "Grok"
         case .groq: "Groq"
+        case .zai: "Z.ai"
         case .clinePass: "ClinePass"
         }
     }
@@ -188,6 +189,7 @@ enum ProviderID: String, Codable, CaseIterable, Identifiable, Sendable {
         case .antigravity: "sparkles"
         case .xai, .grok: "bolt.fill"
         case .groq: "chart.xyaxis.line"
+        case .zai: "z.circle"
         case .clinePass: "circle.hexagonpath.fill"
         }
     }
@@ -199,7 +201,10 @@ enum ProviderID: String, Codable, CaseIterable, Identifiable, Sendable {
         case .antigravity: "antigravity.svg"
         case .cursor: "cursor.svg"
         case .openCode, .openCodeGo: "opencode.svg"
-        case .xai, .grok, .groq: nil
+        case .xai: "xai.svg"
+        case .grok: "grok.svg"
+        case .groq: "groq.svg"
+        case .zai: "zai.svg"
         case .clinePass: "cline.svg"
         }
     }
@@ -285,6 +290,7 @@ enum AppSettings {
     static let overlayDisplayModeKey = "UsageNotch.overlayDisplayMode"
     static let usageDisplayModeKey = "UsageNotch.usageDisplayMode"
     static let showInDockKey = "UsageNotch.showInDock"
+    static let launchAtLoginKey = "UsageNotch.launchAtLogin"
     static let providerIconShapeKey = "UsageNotch.providerIconShape"
     static let themeColorKey = "UsageNotch.themeColor"
     static let windowStyleKey = "UsageNotch.windowStyle"
