@@ -12,7 +12,7 @@ cask "nootch" do
 
   app "nootch.app"
 
-  postflight_steps do
+  postflight do
     # This ad-hoc-signed app is not notarized. Only remove its quarantine flag.
     system_command "/usr/bin/xattr",
                    args: ["-dr", "com.apple.quarantine", "#{appdir}/nootch.app"]
