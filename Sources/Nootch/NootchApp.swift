@@ -57,11 +57,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forName: .settingsDidChange,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
+            let rebuildSettings = (notification.userInfo?["rebuildSettings"] as? Bool) ?? true
             Task { @MainActor [weak self] in
                 self?.panelController?.settingsDidChange()
-                if let self, let window = self.helloWorldWindow {
-                    window.backgroundColor = self.windowBackgroundColor
+                guard let self, let window = self.helloWorldWindow else { return }
+                window.backgroundColor = self.windowBackgroundColor
+                if rebuildSettings {
                     window.contentView = self.makeSettingsContentView()
                 }
             }
@@ -261,6 +263,7 @@ extension AppDelegate: NSWindowDelegate {
 struct SettingsView: View {
     @Bindable var store: UsageStore
     @AppStorage(AppSettings.notchPositionKey) private var positionRaw = NotchPosition.right.rawValue
+    @AppStorage(AppSettings.notchPositionOffsetKey) private var positionOffset = 0.0
     @AppStorage(AppSettings.themeColorKey) private var themeRaw = ThemeColor.red.rawValue
     @AppStorage(AppSettings.windowStyleKey) private var windowStyleRaw = WindowStyle.liquidGlass.rawValue
     @AppStorage(AppSettings.animationDurationKey) private var animationDuration = 0.32
@@ -285,7 +288,7 @@ struct SettingsView: View {
     }
 
     private var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.4"
     }
 
     private var currentThemeTitle: String {
@@ -375,6 +378,39 @@ struct SettingsView: View {
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 7)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Position offset")
+                                .font(.system(size: 13))
+                            Spacer()
+                            Text(positionOffset == 0 ? "Centered" : String(format: "%+.0f%%", positionOffset * 100))
+                                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Slider(value: $positionOffset, in: -1...1, step: 0.01)
+                            .tint(currentTheme == .rainbow ? Color.white.opacity(0.85) : currentTheme.color)
+                            .onChange(of: positionOffset) {
+                                NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+                                postSettingsChange(rebuildSettings: false)
+                            }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+
+                    HStack {
+                        Spacer()
+                        Button("Reset") {
+                            positionRaw = NotchPosition.right.rawValue
+                            positionOffset = 0
+                            postSettingsChange(rebuildSettings: false)
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(currentTheme == .rainbow ? Color.white.opacity(0.85) : currentTheme.color)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 7)
                 }
 
                 SettingsSection(title: "Display") {
@@ -674,8 +710,11 @@ struct SettingsView: View {
         }
     }
 
-    private func postSettingsChange() {
-        NotificationCenter.default.post(name: .settingsDidChange, object: nil)
+    private func postSettingsChange(rebuildSettings: Bool = true) {
+        NotificationCenter.default.post(
+            name: .settingsDidChange,
+            object: nil,
+            userInfo: ["rebuildSettings": rebuildSettings])
     }
 
     private func restartApplication() {

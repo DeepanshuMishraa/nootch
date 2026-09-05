@@ -508,21 +508,27 @@ final class NotchPanel: NSPanel {
         let panelHeight: CGFloat = 480
         let position = NotchPosition(rawValue: UserDefaults.standard.string(forKey: AppSettings.notchPositionKey) ?? "") ?? .right
         let frame = screen.visibleFrame
+        let positionOffset = min(max(UserDefaults.standard.double(forKey: AppSettings.notchPositionOffsetKey), -1), 1)
+        let verticalTravel = max(0, (frame.height - panelHeight - 40) / 2)
+        let horizontalTravel = max(0, (frame.width - panelWidth - 40) / 2)
+        let centeredVerticalOrigin = frame.midY - panelHeight / 2
 
         // The rail is the right-most 72pt of the canonical panel. Anchor that
-        // rail to the selected screen edge rather than centering the whole panel.
+        // rail to the selected screen edge while keeping its default position centered.
         let origin: CGPoint
         switch position {
         case .right:
             origin = CGPoint(
                 x: frame.maxX - panelWidth,
-                y: max(frame.minY + 20, frame.maxY - panelHeight - 12))
+                y: centeredVerticalOrigin - positionOffset * verticalTravel)
         case .leftCenter:
             origin = CGPoint(
                 x: frame.minX,
-                y: max(frame.minY + 20, frame.maxY - panelHeight - 12))
+                y: centeredVerticalOrigin - positionOffset * verticalTravel)
         case .bottomCenter:
-            origin = CGPoint(x: frame.midX - panelWidth / 2, y: frame.minY)
+            origin = CGPoint(
+                x: frame.midX - panelWidth / 2 + positionOffset * horizontalTravel,
+                y: frame.minY)
         }
 
         setFrame(NSRect(origin: origin, size: NSSize(width: panelWidth, height: panelHeight)), display: true)
@@ -581,6 +587,7 @@ final class NotchPanelController {
     private var globalClickMonitor: Any?
     private var localClickMonitor: Any?
     private var globalMouseMonitor: Any?
+    private var localMouseMonitor: Any?
     private let mouseThrottle = MouseMoveThrottle()
     private var autoCollapseTask: Task<Void, Never>?
 
@@ -629,6 +636,9 @@ final class NotchPanelController {
         if let globalMouseMonitor {
             NSEvent.removeMonitor(globalMouseMonitor)
         }
+        if let localMouseMonitor {
+            NSEvent.removeMonitor(localMouseMonitor)
+        }
 
         let eventMask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
         globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: eventMask) { [weak self] _ in
@@ -656,6 +666,14 @@ final class NotchPanelController {
             Task { @MainActor [weak self] in
                 self?.handleMouseMove(event)
             }
+        }
+        // Global monitors do not receive events delivered to this app. The
+        // settings window activates nootch, so keep hover working with a local
+        // monitor whenever the cursor moves over the settings window or panel.
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: mouseMask) { [weak self] event in
+            guard let self, self.mouseThrottle.shouldHandle(event) else { return event }
+            self.handleMouseMove(event)
+            return event
         }
     }
 

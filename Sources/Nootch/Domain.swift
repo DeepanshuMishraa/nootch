@@ -285,6 +285,7 @@ enum WindowStyle: String, CaseIterable, Identifiable, Sendable {
 
 enum AppSettings {
     static let notchPositionKey = "nootch.notchPosition"
+    static let notchPositionOffsetKey = "nootch.notchPositionOffset"
     static let animationDurationKey = "nootch.animationDuration"
     static let activityAnimationDurationKey = "nootch.activityAnimationDuration"
     static let overlayDisplayModeKey = "nootch.overlayDisplayMode"
