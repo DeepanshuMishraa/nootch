@@ -35,12 +35,15 @@ cp -R "$BUNDLE" "$DIST/$APP_NAME.app/Contents/Resources/"
 # identity; an ad-hoc signature falls back to the binary's cdhash, which changes
 # on every build and silently voids any previous "Always Allow" grant.
 CODESIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
+# --deep is deprecated by Apple and unnecessary here: the only nested bundle is
+# nootch_Nootch.bundle, which holds resources and no executable code, so it is
+# covered by the app's own resource seal.
 if [ "$CODESIGN_IDENTITY" = "-" ]; then
     # Ad-hoc, as before. The hardened runtime is skipped here because it only
     # buys anything alongside notarization, which needs a real identity.
-    codesign --force --deep --sign - "$DIST/$APP_NAME.app"
+    codesign --force --sign - "$DIST/$APP_NAME.app"
 else
-    codesign --force --deep --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$DIST/$APP_NAME.app"
+    codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$DIST/$APP_NAME.app"
 fi
 # A bundle that fails verification has no usable code requirement, so Keychain
 # prompts return on every read. Catch that here instead of in the wild.

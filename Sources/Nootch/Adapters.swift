@@ -96,6 +96,83 @@ struct CodexAdapter: ProviderAdapter {
 import Foundation
 import Security
 
+enum TokenLookup: Equatable {
+    case found(String)
+    // Nothing stored anywhere. Re-reading is cheap and raises no prompt, so
+    // this expires quickly and a fresh `claude login` shows up promptly.
+    case absent
+    // The Keychain refused: the prompt was cancelled, or authentication
+    // failed. Re-reading means another password dialog, so back off hard.
+    case denied
+}
+
+// A Keychain read of "Claude Code-credentials" can raise a system password
+// prompt, and the refresh loop runs every 30s. Caching the result keeps a
+// signed build to one prompt per TTL, and keeps an unsigned or denied one from
+// producing a dialog every half minute.
+final class TokenCache: @unchecked Sendable {
+    static let foundTTL: TimeInterval = 300
+    static let absentTTL: TimeInterval = 30
+    static let deniedTTL: TimeInterval = 600
+    // Floor between a rejected token and the next read, so a token the API
+    // keeps refusing cannot turn into a prompt every cycle.
+    static let reloadFloor: TimeInterval = 120
+
+    private let lock = NSLock()
+    private let now: @Sendable () -> Date
+    private var token: String?
+    private var expiresAt: Date?
+    private var earliestReload: Date?
+
+    init(now: @escaping @Sendable () -> Date = { Date() }) {
+        self.now = now
+    }
+
+    /// - Parameter loader: run while the lock is held, so it must not call back
+    ///   into the cache. It is only ever the Keychain/file read in ClaudeAdapter.
+    func value(loader: () -> TokenLookup) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        let now = now()
+        if let expiresAt, now < expiresAt { return token }
+        // Expired, but still inside the post-rejection floor: keep serving the
+        // stale token so the "login expired" error stays put instead of the row
+        // flipping to undetected, and do not touch the Keychain.
+        if let earliestReload, now < earliestReload { return token }
+
+        let ttl: TimeInterval
+        switch loader() {
+        case let .found(value):
+            token = value
+            ttl = Self.foundTTL
+        case .absent:
+            token = nil
+            ttl = Self.absentTTL
+        case .denied:
+            token = nil
+            ttl = Self.deniedTTL
+        }
+        expiresAt = now.addingTimeInterval(ttl)
+        earliestReload = nil
+        return token
+    }
+
+    /// Drops the cached token after the API rejected it, holding a short floor
+    /// before the next read.
+    func invalidate() {
+        lock.lock()
+        defer { lock.unlock() }
+        expiresAt = nil
+        // Only arm the floor when one is not already pending. Rearming on every
+        // rejection would push it out by another two minutes each refresh, and
+        // since the stale token keeps being served the floor would never lapse
+        // — the Keychain would never be read again and a re-login would not be
+        // noticed until restart.
+        guard earliestReload == nil else { return }
+        earliestReload = now().addingTimeInterval(Self.reloadFloor)
+    }
+}
+
 struct ClaudeAdapter: ProviderAdapter {
     let provider: ProviderID = .claude
 
@@ -186,71 +263,7 @@ struct ClaudeAdapter: ProviderAdapter {
         }
     }
 
-    private enum TokenLookup {
-        case found(String)
-        // Nothing stored anywhere. Re-reading is cheap and raises no prompt, so
-        // this expires quickly and a fresh `claude login` shows up promptly.
-        case absent
-        // The Keychain refused: the prompt was cancelled, or authentication
-        // failed. Re-reading means another password dialog, so back off hard.
-        case denied
-    }
-
-    // A Keychain read of "Claude Code-credentials" can raise a system password
-    // prompt, and the refresh loop runs every 30s. Caching the result keeps a
-    // signed build to one prompt per TTL, and keeps an unsigned or denied one
-    // from producing a dialog every half minute.
-    private final class TokenCache: @unchecked Sendable {
-        private static let foundTTL: TimeInterval = 300
-        private static let absentTTL: TimeInterval = 30
-        private static let deniedTTL: TimeInterval = 600
-        // Floor between a rejected token and the next read, so a token the API
-        // keeps refusing cannot turn into a prompt every cycle.
-        private static let reloadFloor: TimeInterval = 120
-
-        private let lock = NSLock()
-        private var token: String?
-        private var expiresAt: Date?
-        private var earliestReload: Date?
-
-        // `loader` runs while the lock is held, so it must not call back into
-        // the cache. It is only ever the Keychain/file read below.
-        func value(loader: () -> TokenLookup) -> String? {
-            lock.lock()
-            defer { lock.unlock() }
-            let now = Date()
-            if let expiresAt, now < expiresAt { return token }
-            // Expired, but still inside the post-rejection floor: keep serving
-            // the stale token so the "login expired" error stays put instead of
-            // the row flipping to undetected, and do not touch the Keychain.
-            if let earliestReload, now < earliestReload { return token }
-
-            let ttl: TimeInterval
-            switch loader() {
-            case let .found(value):
-                token = value
-                ttl = Self.foundTTL
-            case .absent:
-                token = nil
-                ttl = Self.absentTTL
-            case .denied:
-                token = nil
-                ttl = Self.deniedTTL
-            }
-            expiresAt = now.addingTimeInterval(ttl)
-            earliestReload = nil
-            return token
-        }
-
-        func invalidate() {
-            lock.lock()
-            defer { lock.unlock() }
-            expiresAt = nil
-            earliestReload = Date().addingTimeInterval(Self.reloadFloor)
-        }
-    }
-
-    private static let tokenCache = TokenCache()
+    static let tokenCache = TokenCache()
 
     private static func environmentToken() -> String? {
         guard let token = ProcessInfo.processInfo.environment["CLAUDE_CODE_OAUTH_TOKEN"]?

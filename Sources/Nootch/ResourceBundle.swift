@@ -4,7 +4,7 @@ import os
 // SwiftPM's generated `Bundle.module` resolves the resource bundle relative to
 // the executable. For an `.app` that is the bundle root, not
 // `Contents/Resources` where a packaged app keeps its resources, so the lookup
-// misses and the generated accessor calls `assertionFailure` — the app dies
+// misses and the generated accessor calls `fatalError` — the app dies
 // during launch instead of degrading. Moving the bundle to the app root to
 // satisfy `Bundle.module` would leave unsealed contents there and invalidate
 // the code signature, so search the plausible locations here instead and let
@@ -17,26 +17,36 @@ enum ResourceBundle {
     // bundle is xctest, not the code under test.
     private final class ModuleAnchor {}
 
-    static let current: Bundle = {
-        var searched: [URL] = []
+    /// Directories that may hold the resource bundle, most specific first.
+    static func searchPaths(main: Bundle, anchor: Bundle) -> [URL] {
+        var paths: [URL] = []
         // Packaged .app: nootch.app/Contents/Resources/nootch_Nootch.bundle
-        if let resourceURL = Bundle.main.resourceURL { searched.append(resourceURL) }
+        if let resourceURL = main.resourceURL { paths.append(resourceURL) }
         // Bare SwiftPM build: alongside the executable, where Bundle.module looks.
-        if let executableDirectory = Bundle.main.executableURL?.resolvingSymlinksInPath().deletingLastPathComponent() {
-            searched.append(executableDirectory)
+        if let executableDirectory = main.executableURL?.resolvingSymlinksInPath().deletingLastPathComponent() {
+            paths.append(executableDirectory)
         }
-        searched.append(Bundle.main.bundleURL)
+        paths.append(main.bundleURL)
         // Any host process that is not the app itself, notably `swift test`,
-        // where the bundle is a sibling of the .xctest bundle rather than
-        // inside it.
-        let anchor = Bundle(for: ModuleAnchor.self)
-        if let anchorResources = anchor.resourceURL { searched.append(anchorResources) }
-        searched.append(anchor.bundleURL.deletingLastPathComponent())
+        // where the bundle is a sibling of the .xctest bundle rather than inside it.
+        if let anchorResources = anchor.resourceURL { paths.append(anchorResources) }
+        paths.append(anchor.bundleURL.deletingLastPathComponent())
+        return paths
+    }
 
-        for directory in searched {
+    /// Returns nil rather than trapping when the bundle is in none of
+    /// `directories`. This is the whole point of not using `Bundle.module`.
+    static func locate(in directories: [URL]) -> Bundle? {
+        for directory in directories {
             let candidate = directory.appendingPathComponent(bundleName)
             if let bundle = Bundle(url: candidate) { return bundle }
         }
+        return nil
+    }
+
+    static let current: Bundle = {
+        let searched = searchPaths(main: .main, anchor: Bundle(for: ModuleAnchor.self))
+        if let bundle = locate(in: searched) { return bundle }
         // Resources copied loose into the main bundle. Reaching here usually
         // means a broken install rather than a real layout: logos fall back to
         // SF Symbols and the dock icon disappears, which under LSUIElement is
