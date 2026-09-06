@@ -37,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppSettings.configure()
         applyDockVisibility()
-        if let iconURL = Bundle.module.url(forResource: "NootchIcon", withExtension: "png"),
+        if let iconURL = ResourceBundle.url(forResource: "NootchIcon", withExtension: "png"),
            let icon = NSImage(contentsOf: iconURL) {
             icon.isTemplate = false
             NSApp.applicationIconImage = icon

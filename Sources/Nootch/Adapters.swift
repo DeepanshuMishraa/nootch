@@ -117,7 +117,17 @@ struct ClaudeAdapter: ProviderAdapter {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw ClaudeError.invalidResponse }
-            guard http.statusCode == 200 else { throw ClaudeError.http(http.statusCode) }
+            guard http.statusCode == 200 else {
+                // The cached token is no longer good; drop it so the next cycle
+                // re-reads instead of waiting out the TTL on a stale value.
+                // Only worth doing when the cache is what supplied the token;
+                // an env-var token is never cached, so clearing would be a
+                // no-op that just hides the real problem.
+                if http.statusCode == 401 || http.statusCode == 403, Self.environmentToken() == nil {
+                    Self.tokenCache.invalidate()
+                }
+                throw ClaudeError.http(http.statusCode)
+            }
             let usage = try JSONDecoder().decode(Response.self, from: data)
             return ProviderStatus(
                 provider: .claude,
@@ -176,10 +186,85 @@ struct ClaudeAdapter: ProviderAdapter {
         }
     }
 
-    private static func accessToken() -> String? {
-        if let token = ProcessInfo.processInfo.environment["CLAUDE_CODE_OAUTH_TOKEN"]?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty {
+    private enum TokenLookup {
+        case found(String)
+        // Nothing stored anywhere. Re-reading is cheap and raises no prompt, so
+        // this expires quickly and a fresh `claude login` shows up promptly.
+        case absent
+        // The Keychain refused: the prompt was cancelled, or authentication
+        // failed. Re-reading means another password dialog, so back off hard.
+        case denied
+    }
+
+    // A Keychain read of "Claude Code-credentials" can raise a system password
+    // prompt, and the refresh loop runs every 30s. Caching the result keeps a
+    // signed build to one prompt per TTL, and keeps an unsigned or denied one
+    // from producing a dialog every half minute.
+    private final class TokenCache: @unchecked Sendable {
+        private static let foundTTL: TimeInterval = 300
+        private static let absentTTL: TimeInterval = 30
+        private static let deniedTTL: TimeInterval = 600
+        // Floor between a rejected token and the next read, so a token the API
+        // keeps refusing cannot turn into a prompt every cycle.
+        private static let reloadFloor: TimeInterval = 120
+
+        private let lock = NSLock()
+        private var token: String?
+        private var expiresAt: Date?
+        private var earliestReload: Date?
+
+        // `loader` runs while the lock is held, so it must not call back into
+        // the cache. It is only ever the Keychain/file read below.
+        func value(loader: () -> TokenLookup) -> String? {
+            lock.lock()
+            defer { lock.unlock() }
+            let now = Date()
+            if let expiresAt, now < expiresAt { return token }
+            // Expired, but still inside the post-rejection floor: keep serving
+            // the stale token so the "login expired" error stays put instead of
+            // the row flipping to undetected, and do not touch the Keychain.
+            if let earliestReload, now < earliestReload { return token }
+
+            let ttl: TimeInterval
+            switch loader() {
+            case let .found(value):
+                token = value
+                ttl = Self.foundTTL
+            case .absent:
+                token = nil
+                ttl = Self.absentTTL
+            case .denied:
+                token = nil
+                ttl = Self.deniedTTL
+            }
+            expiresAt = now.addingTimeInterval(ttl)
+            earliestReload = nil
             return token
         }
+
+        func invalidate() {
+            lock.lock()
+            defer { lock.unlock() }
+            expiresAt = nil
+            earliestReload = Date().addingTimeInterval(Self.reloadFloor)
+        }
+    }
+
+    private static let tokenCache = TokenCache()
+
+    private static func environmentToken() -> String? {
+        guard let token = ProcessInfo.processInfo.environment["CLAUDE_CODE_OAUTH_TOKEN"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty
+        else { return nil }
+        return token
+    }
+
+    private static func accessToken() -> String? {
+        if let token = environmentToken() { return token }
+        return tokenCache.value(loader: lookupToken)
+    }
+
+    private static func lookupToken() -> TokenLookup {
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: "Claude Code-credentials",
@@ -187,9 +272,30 @@ struct ClaudeAdapter: ProviderAdapter {
             kSecMatchLimit: kSecMatchLimitOne,
         ]
         var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data,
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecSuccess,
+           let data = result as? Data,
+           let token = oauthAccessToken(from: data) {
+            return .found(token)
+        }
+        if let token = credentialsFileToken() { return .found(token) }
+        // errSecItemNotFound means there is simply nothing stored; anything else
+        // is the Keychain declining to hand it over.
+        return status == errSecItemNotFound ? .absent : .denied
+    }
+
+    // Claude Code also writes ~/.claude/.credentials.json on some setups. It is
+    // only a fallback: the Keychain stays authoritative so a refreshed token is
+    // never shadowed by a stale file.
+    private static func credentialsFileToken() -> String? {
+        let url = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent(".claude/.credentials.json")
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return oauthAccessToken(from: data)
+    }
+
+    private static func oauthAccessToken(from data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let oauth = object["claudeAiOauth"] as? [String: Any],
               let token = oauth["accessToken"] as? String,
               !token.isEmpty
