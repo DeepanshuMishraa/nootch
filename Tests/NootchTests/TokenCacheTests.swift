@@ -128,3 +128,23 @@ private struct Loader {
     #expect(cache.value(loader: loader.load) == "first")
     #expect(loader.reads == 1)
 }
+
+// A Keychain read can sit behind a password dialog for longer than the TTL.
+// Dating the entry from before the read would make it expired the moment it
+// arrives, so the next cycle reads again and prompts again — the storm this
+// cache exists to stop.
+@Test func slowLoadStillYieldsAUsableEntry() {
+    let loader = Loader()
+    let cache = TokenCache(now: { loader.clock.date })
+
+    let token = cache.value(loader: {
+        // The user left the password dialog on screen well past foundTTL.
+        loader.clock.advance(TokenCache.foundTTL * 2)
+        return loader.load()
+    })
+    #expect(token == "first")
+
+    // The entry is dated from when the read returned, so it is still live.
+    #expect(cache.value(loader: loader.load) == "first")
+    #expect(loader.reads == 1)
+}

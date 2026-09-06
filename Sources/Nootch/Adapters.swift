@@ -152,7 +152,11 @@ final class TokenCache: @unchecked Sendable {
             token = nil
             ttl = Self.deniedTTL
         }
-        expiresAt = now.addingTimeInterval(ttl)
+        // Measured after the load, not before: a Keychain read that sits behind
+        // a password dialog can outlast the TTL, and dating the entry from
+        // before it would leave it already expired on arrival — the next cycle
+        // would read again and prompt again.
+        expiresAt = self.now().addingTimeInterval(ttl)
         earliestReload = nil
         return token
     }
@@ -263,7 +267,7 @@ struct ClaudeAdapter: ProviderAdapter {
         }
     }
 
-    static let tokenCache = TokenCache()
+    private static let tokenCache = TokenCache()
 
     private static func environmentToken() -> String? {
         guard let token = ProcessInfo.processInfo.environment["CLAUDE_CODE_OAUTH_TOKEN"]?
