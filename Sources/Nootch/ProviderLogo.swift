@@ -14,7 +14,7 @@ struct ProviderLogo: View {
         let key = NSString(string: provider.rawValue)
         if let cached = imageCache.object(forKey: key) { return cached }
         guard let resource = provider.logoResource,
-              let url = Bundle.module.url(forResource: resource, withExtension: nil),
+              let url = ResourceBundle.url(forResource: resource, withExtension: nil),
               let image = NSImage(contentsOf: url)
         else { return nil }
         imageCache.setObject(image, forKey: key)
